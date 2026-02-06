@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
+
+import '../models/memo_record.dart';
+import '../models/recording_result.dart';
 import 'recording_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -75,13 +78,33 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
+        onPressed: () async {
+          final result = await Navigator.push<RecordingResult>(
             context,
             MaterialPageRoute(
               builder: (context) => const RecordingScreen(),
             ),
           );
+
+          if (!mounted || result == null) return;
+
+          final now = DateTime.now();
+          final mm = now.minute.toString().padLeft(2, '0');
+
+          setState(() {
+            _records.insert(
+              0,
+              MemoRecord(
+                id: now.millisecondsSinceEpoch.toString(),
+                title: '녹음 ${now.month}/${now.day} ${now.hour}:$mm',
+                createdAt: now,
+                duration: _formatDuration(result.duration),
+                status: '완료',
+                hasTranscript: true,
+                transcript: result.transcript,
+              ),
+            );
+          });
         },
         icon: const Icon(Icons.mic),
         label: const Text('새 녹음'),
@@ -200,6 +223,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    return '$minutes:$seconds';
+  }
+
   String _formatDate(DateTime dateTime) {
     final now = DateTime.now();
     final diff = now.difference(dateTime);
@@ -240,21 +270,4 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// 임시 모델 클래스 (나중에 models 폴더로 이동)
-class MemoRecord {
-  final String id;
-  final String title;
-  final DateTime createdAt;
-  final String? duration;
-  final String status;
-  final bool hasTranscript;
-
-  MemoRecord({
-    required this.id,
-    required this.title,
-    required this.createdAt,
-    this.duration,
-    required this.status,
-    required this.hasTranscript,
-  });
-}
+// (moved to lib/models/memo_record.dart)

@@ -1,9 +1,12 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
+
+import '../models/recording_result.dart';
 
 class RecordingScreen extends StatefulWidget {
   const RecordingScreen({super.key});
@@ -150,36 +153,22 @@ class _RecordingScreenState extends State<RecordingScreen>
   }
   
   Future<void> _saveAndProcess() async {
-    if (_fullTranscript.trim().isEmpty) {
+    final transcript = (_fullTranscript + _lastWords).trim();
+    if (transcript.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('녹음된 내용이 없습니다.')),
       );
       return;
     }
-    
-    // TODO: 녹음 저장 및 GPT 처리
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('처리 중'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('회의록을 생성하고 있습니다...'),
-          ],
-        ),
+
+    // TODO: 실제 저장(오디오 파일) + 요약/회의록 생성(GPT) 연결
+    // 지금은 홈 화면에 전사 텍스트와 녹음 시간을 넘겨주는 MVP 흐름만 유지.
+
+    Navigator.of(context).pop(
+      RecordingResult(
+        transcript: transcript,
+        duration: _recordingDuration,
       ),
-    );
-    
-    // 임시: 2초 후 완료
-    await Future.delayed(const Duration(seconds: 2));
-    Navigator.of(context).pop(); // 다이얼로그 닫기
-    Navigator.of(context).pop(); // 녹음 화면 닫기
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('회의록이 생성되었습니다.')),
     );
   }
   
@@ -247,12 +236,12 @@ class _RecordingScreenState extends State<RecordingScreen>
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: _isListening
-                              ? Colors.red.withOpacity(0.8)
+                              ? Colors.red.withValues(alpha: 0.8)
                               : Theme.of(context).colorScheme.primary,
                           boxShadow: _isListening
                               ? [
                                   BoxShadow(
-                                    color: Colors.red.withOpacity(0.3),
+                                    color: Colors.red.withValues(alpha: 0.3),
                                     spreadRadius: _pulseController.value * 30,
                                     blurRadius: 20,
                                   ),
@@ -281,7 +270,7 @@ class _RecordingScreenState extends State<RecordingScreen>
                   color: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
+                    color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
                   ),
                 ),
                 child: SingleChildScrollView(

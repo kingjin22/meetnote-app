@@ -11,6 +11,7 @@ import '../repositories/local_recording_repository.dart';
 import '../services/audio_playback_controller.dart';
 import '../services/recording_import_service.dart';
 import '../services/transcription_service.dart';
+import '../widgets/transcription_progress_banner.dart';
 import 'recording_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -28,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<Recording> _recordings = [];
   final Set<String> _transcribingIds = {};
+  bool _progressDialogVisible = false;
 
   @override
   void initState() {
@@ -66,6 +68,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Column(
         children: [
+          if (_transcribingIds.isNotEmpty)
+            TranscriptionProgressBanner(activeCount: _transcribingIds.length),
           Container(
             margin: const EdgeInsets.all(16),
             padding: const EdgeInsets.all(20),
@@ -369,12 +373,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   itemBuilder: (context) => [
                     PopupMenuItem(
                       value: 'transcribe',
-                      enabled: !isTranscribing,
+                      enabled: !isTranscribing && _transcribingIds.isEmpty,
                       child: Row(
                         children: [
                           Icon(MdiIcons.textBox),
                           const SizedBox(width: 8),
-                          Text(isTranscribing ? '텍스트 변환 중...' : '텍스트 변환'),
+                          Text(
+                            isTranscribing ? '텍스트 변환 중...' : '텍스트 변환',
+                          ),
                         ],
                       ),
                     ),
@@ -457,6 +463,21 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ),
+              if (isTranscribing)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '텍스트 변환 중...',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      const LinearProgressIndicator(),
+                    ],
+                  ),
+                ),
             ],
           ),
         );
@@ -521,31 +542,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _startTranscription(Recording recording) async {
     if (_transcribingIds.contains(recording.id)) return;
+    if (_transcribingIds.isNotEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('다른 텍스트 변환이 진행 중이에요.')),
+      );
+      return;
+    }
 
     setState(() {
       _transcribingIds.add(recording.id);
     });
 
-    var dialogShown = false;
-    if (mounted) {
-      dialogShown = true;
-      unawaited(
-        showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => const AlertDialog(
-            title: Text('텍스트 변환 중'),
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 16),
-                Expanded(child: Text('오디오를 분석하고 있어요...')),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
+    _showTranscriptionProgress();
 
     try {
       final text = await _transcriptionService.transcribeFile(
@@ -559,26 +568,52 @@ class _HomeScreenState extends State<HomeScreen> {
       await _repo.update(updated);
       await _load();
       if (!mounted) return;
-      if (dialogShown) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-      await _showTranscriptSheet(updated);
+      _dismissTranscriptionProgress();
+      setState(() {
+        _transcribingIds.remove(recording.id);
+      });
+      final persisted = await _repo.getById(recording.id);
+      if (!mounted) return;
+      await _showTranscriptSheet(persisted ?? updated);
     } catch (e) {
       if (!mounted) return;
-      if (dialogShown) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-      final message = _messageForTranscriptionError(e);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    } finally {
+      _dismissTranscriptionProgress();
       if (mounted) {
         setState(() {
           _transcribingIds.remove(recording.id);
         });
       }
+      await _showTranscriptionErrorDialog(recording, e);
     }
+  }
+
+  void _showTranscriptionProgress() {
+    if (_progressDialogVisible || !mounted) return;
+    _progressDialogVisible = true;
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          title: Text('텍스트 변환 중'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              LinearProgressIndicator(),
+              SizedBox(height: 16),
+              Text('오디오를 분석하고 있어요...'),
+            ],
+          ),
+        ),
+      ).whenComplete(() {
+        _progressDialogVisible = false;
+      }),
+    );
+  }
+
+  void _dismissTranscriptionProgress() {
+    if (!_progressDialogVisible || !mounted) return;
+    Navigator.of(context, rootNavigator: true).maybePop();
   }
 
   String _buildSummary(String text) {
@@ -607,10 +642,60 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String _messageForTranscriptionError(Object error) {
-    if (error is PlatformException && error.message != null) {
-      return error.message!;
+    if (error is PlatformException) {
+      switch (error.code) {
+        case 'speech_denied':
+          return '음성 인식 권한이 필요해요. 설정에서 권한을 허용해주세요.';
+        case 'file_missing':
+          return '오디오 파일을 찾을 수 없어요. 파일이 삭제되었을 수 있어요.';
+        case 'recognizer_unavailable':
+          return '지금은 음성 인식을 사용할 수 없어요.';
+        case 'recognizer_busy':
+          return '음성 인식이 바쁜 상태예요. 잠시 후 다시 시도해주세요.';
+        case 'offline_unavailable':
+          return '이 기기에서는 오프라인 음성 인식을 지원하지 않아요.';
+        case 'transcription_failed':
+          return '텍스트 변환 중 오류가 발생했어요. 다시 시도해주세요.';
+        case 'unsupported_platform':
+          return '현재 기기에서는 텍스트 변환을 지원하지 않아요.';
+        default:
+          if (error.message != null && error.message!.isNotEmpty) {
+            return error.message!;
+          }
+          return '텍스트 변환에 실패했어요.';
+      }
     }
     return '텍스트 변환에 실패했어요.';
+  }
+
+  Future<void> _showTranscriptionErrorDialog(
+    Recording recording,
+    Object error,
+  ) async {
+    final message = _messageForTranscriptionError(error);
+    if (!mounted) return;
+
+    final retry = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('텍스트 변환 실패'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('닫기'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('다시 시도'),
+          ),
+        ],
+      ),
+    );
+
+    if (retry == true && mounted) {
+      await _startTranscription(recording);
+    }
   }
 
   Future<void> _showTranscriptSheet(Recording recording) {

@@ -22,17 +22,27 @@ class TranscriptionService {
       );
     }
 
-    final text = await _channel.invokeMethod<String>('transcribeFile', {
-      'path': filePath,
-    });
+    try {
+      final text = await _channel.invokeMethod<String>('transcribeFile', {
+        'path': filePath,
+      });
 
-    if (text == null || text.trim().isEmpty) {
-      throw PlatformException(
-        code: 'empty_transcript',
-        message: '텍스트 변환 결과가 비어 있어요.',
-      );
+      if (text == null || text.trim().isEmpty) {
+        throw PlatformException(
+          code: 'empty_transcript',
+          message: '텍스트 변환 결과가 비어 있어요.',
+        );
+      }
+
+      return text.trim();
+    } on PlatformException catch (error) {
+      if (error.code == 'empty_transcript') {
+        throw PlatformException(
+          code: error.code,
+          message: error.message ?? '텍스트 변환 결과가 비어 있어요.',
+        );
+      }
+      rethrow;
     }
-
-    return text.trim();
   }
 }

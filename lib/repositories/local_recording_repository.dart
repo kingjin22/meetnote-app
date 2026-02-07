@@ -40,6 +40,24 @@ class LocalRecordingRepository implements RecordingRepository {
   }
 
   @override
+  Future<Recording?> getById(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final maps = await _readList(prefs);
+    if (maps.isEmpty) return null;
+
+    for (final map in maps) {
+      final rec = Recording.fromMap(map);
+      if (rec.id == id) {
+        final exists = await File(rec.filePath).exists();
+        if (!exists) return null;
+        return rec;
+      }
+    }
+
+    return null;
+  }
+
+  @override
   Future<void> add(Recording recording) async {
     final prefs = await SharedPreferences.getInstance();
     final items = await _readList(prefs);

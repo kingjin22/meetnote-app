@@ -71,50 +71,69 @@ import UIKit
           return
         }
 
-        if !recognizer.supportsOnDeviceRecognition {
-          result(FlutterError(
-            code: "offline_unavailable",
-            message: "이 기기에서는 오프라인 음성 인식을 지원하지 않아요.",
-            details: nil
-          ))
-          return
-        }
+        print("Transcription recognizer locale: \(recognizer.locale.identifier)")
+        print("Transcription file URL: \(url.absoluteString)")
 
-        self.activeRecognitionTask?.cancel()
-        self.activeRecognitionTask = nil
-        self.activeRecognizer = recognizer
-
-        let request = SFSpeechURLRecognitionRequest(url: url)
-        request.shouldReportPartialResults = false
-        request.requiresOnDeviceRecognition = true
-
+        let prefersOnDevice = recognizer.supportsOnDeviceRecognition
         var didRespond = false
-        self.activeRecognitionTask = recognizer.recognitionTask(with: request) { transcription, error in
-          if didRespond {
-            return
-          }
 
-          if let error = error {
-            didRespond = true
-            self.activeRecognitionTask = nil
-            result(FlutterError(
-              code: "transcription_failed",
-              message: "텍스트 변환에 실패했어요: \(error.localizedDescription)",
-              details: nil
-            ))
-            return
-          }
+        func startRecognition(requiresOnDevice: Bool) {
+          self.activeRecognitionTask?.cancel()
+          self.activeRecognitionTask = nil
+          self.activeRecognizer = recognizer
 
-          guard let transcription = transcription else {
-            return
-          }
+          let request = SFSpeechURLRecognitionRequest(url: url)
+          request.shouldReportPartialResults = false
+          request.requiresOnDeviceRecognition = requiresOnDevice
 
-          if transcription.isFinal {
-            didRespond = true
-            self.activeRecognitionTask = nil
-            result(transcription.bestTranscription.formattedString)
+          let mode = requiresOnDevice ? "on-device" : "online"
+          print("Transcription recognition mode: \(mode)")
+
+          self.activeRecognitionTask = recognizer.recognitionTask(with: request) { transcription, error in
+            if didRespond {
+              return
+            }
+
+            if let error = error {
+              didRespond = true
+              self.activeRecognitionTask = nil
+              result(FlutterError(
+                code: "transcription_failed",
+                message: "텍스트 변환에 실패했어요: \(error.localizedDescription)",
+                details: nil
+              ))
+              return
+            }
+
+            guard let transcription = transcription else {
+              return
+            }
+
+            if transcription.isFinal {
+              let formattedText = transcription.bestTranscription.formattedString
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+              if formattedText.isEmpty {
+                if requiresOnDevice {
+                  startRecognition(requiresOnDevice: false)
+                  return
+                }
+                didRespond = true
+                self.activeRecognitionTask = nil
+                result(FlutterError(
+                  code: "empty_transcript",
+                  message: "텍스트 변환 결과가 비어 있어요. 녹음을 확인하거나 다시 시도해주세요.",
+                  details: nil
+                ))
+                return
+              }
+              didRespond = true
+              self.activeRecognitionTask = nil
+              result(formattedText)
+            }
           }
         }
+
+        startRecognition(requiresOnDevice: prefersOnDevice)
       }
     }
   }

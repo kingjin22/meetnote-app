@@ -53,11 +53,6 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
-            tooltip: '가져오기',
-            icon: const Icon(Icons.file_upload_outlined),
-            onPressed: _onImportPressed,
-          ),
-          IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
               // TODO: 설정 화면
@@ -109,29 +104,58 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          final result = await Navigator.push<RecordingResult>(
-            context,
-            MaterialPageRoute(builder: (context) => const RecordingScreen()),
-          );
-
-          if (!mounted || result == null) return;
-
-          final recording = Recording(
-            id: result.recordingId,
-            filePath: result.filePath,
-            createdAt: result.createdAt,
-            duration: result.duration,
-          );
-
-          await _repo.add(recording);
-          await _load();
-        },
-        icon: const Icon(Icons.mic),
-        label: const Text('새 녹음'),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _onNewRecordingPressed,
+                  icon: const Icon(Icons.mic),
+                  label: const Text(
+                    '새 녹음',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _onImportPressed,
+                  icon: const Icon(Icons.file_upload_outlined),
+                  label: const Text(
+                    '가져오기',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
+  }
+
+  Future<void> _onNewRecordingPressed() async {
+    final result = await Navigator.push<RecordingResult>(
+      context,
+      MaterialPageRoute(builder: (context) => const RecordingScreen()),
+    );
+
+    if (!mounted || result == null) return;
+
+    final recording = Recording(
+      id: result.recordingId,
+      filePath: result.filePath,
+      createdAt: result.createdAt,
+      duration: result.duration,
+    );
+
+    await _repo.add(recording);
+    await _load();
   }
 
   Future<void> _onImportPressed() async {

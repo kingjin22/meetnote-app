@@ -1,3 +1,4 @@
+import AVFoundation
 import Flutter
 import Speech
 import UIKit
@@ -7,6 +8,7 @@ import UIKit
   private let transcriptionChannelName = "meetnote/transcription"
   private var activeRecognizer: SFSpeechRecognizer?
   private var activeRecognitionTask: SFSpeechRecognitionTask?
+  private let defaultLocaleIdentifier = "ko-KR"
 
   override func application(
     _ application: UIApplication,
@@ -42,6 +44,12 @@ import UIKit
       return
     }
 
+    let localeIdentifier = (args["locale"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let resolvedLocaleIdentifier = (localeIdentifier?.isEmpty == false)
+      ? localeIdentifier!
+      : defaultLocaleIdentifier
+    let allowOnlineFallback = (args["allowOnlineFallback"] as? Bool) ?? true
+
     SFSpeechRecognizer.requestAuthorization { status in
       DispatchQueue.main.async {
         guard status == .authorized else {
@@ -53,7 +61,7 @@ import UIKit
           return
         }
 
-        guard let recognizer = SFSpeechRecognizer() else {
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: resolvedLocaleIdentifier)) else {
           result(FlutterError(
             code: "recognizer_unavailable",
             message: "음성 인식을 사용할 수 없어요.",
@@ -73,35 +81,54 @@ import UIKit
 
         print("Transcription recognizer locale: \(recognizer.locale.identifier)")
         print("Transcription file URL: \(url.absoluteString)")
+        print("Transcription file extension: \(url.pathExtension.lowercased())")
+        print("Transcription allow online fallback: \(allowOnlineFallback)")
 
         let prefersOnDevice = recognizer.supportsOnDeviceRecognition
         var didRespond = false
 
-        func startRecognition(requiresOnDevice: Bool) {
+        func finalizeResponse(_ response: @escaping () -> Void, tempURL: URL?) {
+          if didRespond {
+            return
+          }
+          didRespond = true
+          self.activeRecognitionTask = nil
+          if let tempURL = tempURL {
+            try? FileManager.default.removeItem(at: tempURL)
+            print("Transcription temp file cleaned: \(tempURL.lastPathComponent)")
+          }
+          response()
+        }
+
+        func startRecognition(requiresOnDevice: Bool, audioURL: URL, tempURL: URL?) {
           self.activeRecognitionTask?.cancel()
           self.activeRecognitionTask = nil
           self.activeRecognizer = recognizer
 
-          let request = SFSpeechURLRecognitionRequest(url: url)
+          let request = SFSpeechURLRecognitionRequest(url: audioURL)
           request.shouldReportPartialResults = false
           request.requiresOnDeviceRecognition = requiresOnDevice
 
           let mode = requiresOnDevice ? "on-device" : "online"
           print("Transcription recognition mode: \(mode)")
+          if audioURL != url {
+            print("Transcription using transcoded file: \(audioURL.lastPathComponent)")
+          }
 
           self.activeRecognitionTask = recognizer.recognitionTask(with: request) { transcription, error in
-            if didRespond {
-              return
-            }
-
             if let error = error {
-              didRespond = true
-              self.activeRecognitionTask = nil
-              result(FlutterError(
-                code: "transcription_failed",
-                message: "텍스트 변환에 실패했어요: \(error.localizedDescription)",
-                details: nil
-              ))
+              if requiresOnDevice, allowOnlineFallback {
+                print("Transcription on-device error, retrying online: \(error.localizedDescription)")
+                startRecognition(requiresOnDevice: false, audioURL: audioURL, tempURL: tempURL)
+                return
+              }
+              finalizeResponse({
+                result(FlutterError(
+                  code: "transcription_failed",
+                  message: "텍스트 변환에 실패했어요: \(error.localizedDescription)",
+                  details: nil
+                ))
+              }, tempURL: tempURL)
               return
             }
 
@@ -113,28 +140,86 @@ import UIKit
               let formattedText = transcription.bestTranscription.formattedString
                 .trimmingCharacters(in: .whitespacesAndNewlines)
               if formattedText.isEmpty {
-                if requiresOnDevice {
-                  startRecognition(requiresOnDevice: false)
+                if requiresOnDevice, allowOnlineFallback {
+                  print("Transcription on-device empty, retrying online.")
+                  startRecognition(requiresOnDevice: false, audioURL: audioURL, tempURL: tempURL)
                   return
                 }
-                didRespond = true
-                self.activeRecognitionTask = nil
-                result(FlutterError(
-                  code: "empty_transcript",
-                  message: "텍스트 변환 결과가 비어 있어요. 녹음을 확인하거나 다시 시도해주세요.",
-                  details: nil
-                ))
+                finalizeResponse({
+                  result(FlutterError(
+                    code: "empty_transcript",
+                    message: "텍스트 변환 결과가 비어 있어요. 녹음을 확인하거나 다시 시도해주세요.",
+                    details: nil
+                  ))
+                }, tempURL: tempURL)
                 return
               }
-              didRespond = true
-              self.activeRecognitionTask = nil
-              result(formattedText)
+              finalizeResponse({
+                result(formattedText)
+              }, tempURL: tempURL)
             }
           }
         }
 
-        startRecognition(requiresOnDevice: prefersOnDevice)
+        self.prepareAudioForRecognition(from: url) { preparedURL, tempURL in
+          DispatchQueue.main.async {
+            startRecognition(requiresOnDevice: prefersOnDevice, audioURL: preparedURL, tempURL: tempURL)
+          }
+        }
       }
+    }
+  }
+
+  private func prepareAudioForRecognition(
+    from url: URL,
+    completion: @escaping (URL, URL?) -> Void
+  ) {
+    let extensionLowercased = url.pathExtension.lowercased()
+    let speechFriendlyExtensions: Set<String> = ["m4a", "caf", "wav", "aif", "aiff"]
+    guard !speechFriendlyExtensions.contains(extensionLowercased) else {
+      completion(url, nil)
+      return
+    }
+
+    let asset = AVURLAsset(url: url)
+    let preset = AVAssetExportPresetAppleM4A
+    let compatiblePresets = AVAssetExportSession.exportPresets(compatibleWith: asset)
+    guard compatiblePresets.contains(preset) else {
+      print("Transcription export preset not compatible, skipping transcode.")
+      completion(url, nil)
+      return
+    }
+
+    guard let exportSession = AVAssetExportSession(asset: asset, presetName: preset) else {
+      print("Transcription export session could not be created, skipping transcode.")
+      completion(url, nil)
+      return
+    }
+
+    let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
+      .appendingPathComponent(UUID().uuidString)
+      .appendingPathExtension("m4a")
+
+    exportSession.outputURL = tempURL
+    exportSession.outputFileType = .m4a
+    exportSession.shouldOptimizeForNetworkUse = false
+
+    print("Transcription export started: \(tempURL.lastPathComponent)")
+
+    exportSession.exportAsynchronously { [weak exportSession] in
+      let status = exportSession?.status ?? .unknown
+      let errorDescription = exportSession?.error?.localizedDescription ?? "none"
+      print("Transcription export status: \(status.rawValue), error: \(errorDescription)")
+
+      guard status == .completed else {
+        if FileManager.default.fileExists(atPath: tempURL.path) {
+          try? FileManager.default.removeItem(at: tempURL)
+        }
+        completion(url, nil)
+        return
+      }
+
+      completion(tempURL, tempURL)
     }
   }
 }

@@ -5,7 +5,11 @@ import 'package:flutter/services.dart';
 class TranscriptionService {
   static const MethodChannel _channel = MethodChannel('meetnote/transcription');
 
-  Future<String> transcribeFile(String filePath) async {
+  Future<String> transcribeFile(
+    String filePath, {
+    String locale = 'ko-KR',
+    bool allowOnlineFallback = true,
+  }) async {
     if (!Platform.isIOS) {
       throw PlatformException(
         code: 'unsupported_platform',
@@ -25,6 +29,8 @@ class TranscriptionService {
     try {
       final text = await _channel.invokeMethod<String>('transcribeFile', {
         'path': filePath,
+        'locale': locale,
+        'allowOnlineFallback': allowOnlineFallback,
       });
 
       if (text == null || text.trim().isEmpty) {

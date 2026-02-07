@@ -228,6 +228,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
                 break;
               case 'delete':
+                final ok = await _confirmDelete(recording);
+                if (ok != true) return;
                 await _repo.deleteById(recording.id);
                 await _load();
                 break;
@@ -304,6 +306,33 @@ class _HomeScreenState extends State<HomeScreen> {
     final minutes = twoDigits(duration.inMinutes.remainder(60));
     final seconds = twoDigits(duration.inSeconds.remainder(60));
     return '$minutes:$seconds';
+  }
+
+  Future<bool?> _confirmDelete(Recording recording) {
+    final title = _titleFor(recording.createdAt);
+
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('녹음을 삭제할까요?'),
+        content: Text(
+          '$title\n\n삭제하면 녹음 파일도 함께 제거됩니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              '삭제',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   String _formatDate(DateTime dateTime) {

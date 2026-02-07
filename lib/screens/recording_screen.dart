@@ -99,7 +99,8 @@ class _RecordingScreenState extends State<RecordingScreen>
   }
 
   Future<void> _showPermissionDialog(PermissionStatus status) async {
-    final shouldOpenSettings = status.isPermanentlyDenied || status.isRestricted;
+    final shouldOpenSettings =
+        status.isPermanentlyDenied || status.isRestricted;
 
     await showDialog<void>(
       context: context,
@@ -127,9 +128,9 @@ class _RecordingScreenState extends State<RecordingScreen>
   void _finish() {
     final filePath = _filePath;
     if (filePath == null || filePath.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('저장된 녹음 파일이 없습니다.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('저장된 녹음 파일이 없습니다.')));
       return;
     }
 
@@ -153,10 +154,7 @@ class _RecordingScreenState extends State<RecordingScreen>
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           if (canFinish)
-            TextButton(
-              onPressed: _finish,
-              child: const Text('완료'),
-            ),
+            TextButton(onPressed: _finish, child: const Text('완료')),
         ],
       ),
       body: Padding(
@@ -173,8 +171,9 @@ class _RecordingScreenState extends State<RecordingScreen>
                   child: AnimatedBuilder(
                     animation: _pulseController,
                     builder: (context, child) {
-                      final extra =
-                          _isRecording ? _pulseController.value * 20.0 : 0.0;
+                      final extra = _isRecording
+                          ? _pulseController.value * 20.0
+                          : 0.0;
                       return Container(
                         width: 200.0 + extra,
                         height: 200.0 + extra,
@@ -213,10 +212,9 @@ class _RecordingScreenState extends State<RecordingScreen>
                   color: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .outline
-                        .withValues(alpha: 0.5),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.outline.withValues(alpha: 0.5),
                   ),
                 ),
                 child: Column(
@@ -232,7 +230,8 @@ class _RecordingScreenState extends State<RecordingScreen>
                         const SizedBox(width: 8),
                         Text(
                           '저장 경로',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(
                                 color: Theme.of(context).colorScheme.primary,
                               ),
                         ),
@@ -244,19 +243,18 @@ class _RecordingScreenState extends State<RecordingScreen>
                           (_isRecording
                               ? '녹음 파일을 준비 중...' // start() 직후
                               : '녹음을 시작하면 파일이 생성됩니다.'),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            height: 1.4,
-                          ),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(height: 1.4),
                     ),
                     const Spacer(),
                     Text(
                       _isRecording
                           ? '녹음 중입니다. 버튼을 눌러 정지하세요.'
                           : '버튼을 눌러 녹음을 시작하세요.',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(color: Colors.grey[600]),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -295,9 +293,9 @@ class _TimerChip extends StatelessWidget {
           Text(
             _format(duration),
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSecondaryContainer,
-                  fontWeight: FontWeight.bold,
-                ),
+              color: Theme.of(context).colorScheme.onSecondaryContainer,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ],
       ),

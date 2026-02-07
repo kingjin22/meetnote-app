@@ -6,6 +6,7 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import '../models/recording.dart';
 import '../models/recording_result.dart';
 import '../repositories/local_recording_repository.dart';
+import '../services/audio_playback_controller.dart';
 import 'recording_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -17,6 +18,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _repo = LocalRecordingRepository();
+  final _playback = AudioPlaybackController();
+
   List<Recording> _recordings = [];
 
   @override
@@ -31,6 +34,12 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _recordings = items;
     });
+  }
+
+  @override
+  void dispose() {
+    _playback.dispose();
+    super.dispose();
   }
 
   @override
@@ -96,9 +105,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onPressed: () async {
           final result = await Navigator.push<RecordingResult>(
             context,
-            MaterialPageRoute(
-              builder: (context) => const RecordingScreen(),
-            ),
+            MaterialPageRoute(builder: (context) => const RecordingScreen()),
           );
 
           if (!mounted || result == null) return;
@@ -130,14 +137,11 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 8),
         Text(
           value,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],
     );
   }
@@ -147,24 +151,20 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            MdiIcons.microphoneOutline,
-            size: 64,
-            color: Colors.grey[400],
-          ),
+          Icon(MdiIcons.microphoneOutline, size: 64, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
             '아직 녹음이 없어요',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: Colors.grey[600],
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(color: Colors.grey[600]),
           ),
           const SizedBox(height: 8),
           Text(
             '하단의 버튼을 눌러 첫 번째 녹음을 시작하세요',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey[500],
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[500]),
           ),
         ],
       ),
@@ -174,119 +174,166 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildRecordingCard(Recording recording) {
     final title = _titleFor(recording.createdAt);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          child: const Icon(
-            Icons.mic,
-            color: Colors.white,
-          ),
-        ),
-        title: Text(title),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _formatDate(recording.createdAt),
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Text(
-              '${_formatDuration(recording.duration)} • 로컬 저장',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.green,
+    return AnimatedBuilder(
+      animation: _playback,
+      builder: (context, _) {
+        final isCurrent = _playback.currentRecordingId == recording.id;
+        final isPlaying = isCurrent && _playback.isPlaying;
+
+        final total = isCurrent && _playback.duration != Duration.zero
+            ? _playback.duration
+            : recording.duration;
+
+        final pos = isCurrent ? _playback.position : Duration.zero;
+        final safePos = pos > total ? total : pos;
+
+        final maxMs = total.inMilliseconds.toDouble();
+        final valueMs = safePos.inMilliseconds.toDouble().clamp(
+          0.0,
+          maxMs == 0 ? 0.0 : maxMs,
+        );
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            children: [
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  child: Icon(
+                    isPlaying ? Icons.pause : Icons.play_arrow,
+                    color: Colors.white,
                   ),
-            ),
-          ],
-        ),
-        trailing: PopupMenuButton<String>(
-          onSelected: (value) async {
-            switch (value) {
-              case 'path':
-                await showModalBottomSheet<void>(
-                  context: context,
-                  showDragHandle: true,
-                  builder: (context) {
-                    return Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '파일 경로',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 12),
-                          SelectableText(recording.filePath),
-                          const SizedBox(height: 12),
-                        ],
-                      ),
-                    );
-                  },
-                );
-                break;
-              case 'delete':
-                final ok = await _confirmDelete(recording);
-                if (ok != true) return;
-                await _repo.deleteById(recording.id);
-                await _load();
-                break;
-            }
-          },
-          itemBuilder: (context) => const [
-            PopupMenuItem(
-              value: 'path',
-              child: Row(
-                children: [
-                  Icon(Icons.folder_open),
-                  SizedBox(width: 8),
-                  Text('파일 경로'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'delete',
-              child: Row(
-                children: [
-                  Icon(Icons.delete, color: Colors.red),
-                  SizedBox(width: 8),
-                  Text('삭제', style: TextStyle(color: Colors.red)),
-                ],
-              ),
-            ),
-          ],
-        ),
-        onTap: () async {
-          await showModalBottomSheet<void>(
-            context: context,
-            showDragHandle: true,
-            builder: (context) {
-              return Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+                ),
+                title: Text(title),
+                subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleMedium,
+                      _formatDate(recording.createdAt),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    const SizedBox(height: 8),
-                    Text('길이: ${_formatDuration(recording.duration)}'),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '※ MVP: 재생/전사/요약은 아직 연결되지 않았습니다.',
+                    Text(
+                      '${_formatDuration(recording.duration)} • 로컬 저장',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: Colors.green),
                     ),
-                    const SizedBox(height: 12),
                   ],
                 ),
-              );
-            },
-          );
-        },
-      ),
+                trailing: PopupMenuButton<String>(
+                  onSelected: (value) async {
+                    switch (value) {
+                      case 'path':
+                        await showModalBottomSheet<void>(
+                          context: context,
+                          showDragHandle: true,
+                          builder: (context) {
+                            return Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    '파일 경로',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  SelectableText(recording.filePath),
+                                  const SizedBox(height: 12),
+                                ],
+                              ),
+                            );
+                          },
+                        );
+                        break;
+                      case 'delete':
+                        final ok = await _confirmDelete(recording);
+                        if (ok != true) return;
+                        if (_playback.currentRecordingId == recording.id) {
+                          await _playback.stop();
+                        }
+                        await _repo.deleteById(recording.id);
+                        await _load();
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'path',
+                      child: Row(
+                        children: [
+                          Icon(Icons.folder_open),
+                          SizedBox(width: 8),
+                          Text('파일 경로'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete, color: Colors.red),
+                          SizedBox(width: 8),
+                          Text('삭제', style: TextStyle(color: Colors.red)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                onTap: () async {
+                  final error = await _playback.toggle(
+                    recordingId: recording.id,
+                    filePath: recording.filePath,
+                  );
+
+                  if (!mounted || error == null) return;
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text(error)));
+                },
+              ),
+              if (isCurrent)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Column(
+                    children: [
+                      Slider(
+                        value: valueMs,
+                        max: maxMs == 0 ? 1 : maxMs,
+                        onChanged: maxMs == 0
+                            ? null
+                            : (v) {
+                                unawaited(
+                                  _playback.seek(
+                                    Duration(milliseconds: v.round()),
+                                  ),
+                                );
+                              },
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _formatDuration(safePos),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          Text(
+                            _formatDuration(total),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -315,9 +362,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('녹음을 삭제할까요?'),
-        content: Text(
-          '$title\n\n삭제하면 녹음 파일도 함께 제거됩니다.',
-        ),
+        content: Text('$title\n\n삭제하면 녹음 파일도 함께 제거됩니다.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -325,10 +370,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text(
-              '삭제',
-              style: TextStyle(color: Colors.red),
-            ),
+            child: const Text('삭제', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -350,4 +392,3 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 }
-

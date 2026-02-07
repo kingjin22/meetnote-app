@@ -7,7 +7,7 @@ class AudioRecorderService {
   final AudioRecorder _recorder;
 
   AudioRecorderService({AudioRecorder? recorder})
-      : _recorder = recorder ?? AudioRecorder();
+    : _recorder = recorder ?? AudioRecorder();
 
   Future<bool> get isRecording => _recorder.isRecording();
 

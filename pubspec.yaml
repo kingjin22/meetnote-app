@@ -41,7 +41,7 @@ dependencies:
   http: ^1.2.2
   shared_preferences: ^2.3.2
   path_provider: ^2.1.4
-  record: ^5.2.0
+  record: ^6.2.0
 
   # Playback
   just_audio: ^0.9.38

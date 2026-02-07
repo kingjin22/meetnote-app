@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
@@ -7,6 +8,7 @@ import '../models/recording.dart';
 import '../models/recording_result.dart';
 import '../repositories/local_recording_repository.dart';
 import '../services/audio_playback_controller.dart';
+import '../services/recording_import_service.dart';
 import 'recording_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -19,6 +21,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _repo = LocalRecordingRepository();
   final _playback = AudioPlaybackController();
+  final _importService = RecordingImportService();
 
   List<Recording> _recordings = [];
 
@@ -49,6 +52,11 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('MemoNote'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          IconButton(
+            tooltip: '가져오기',
+            icon: const Icon(Icons.file_upload_outlined),
+            onPressed: _onImportPressed,
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
@@ -124,6 +132,66 @@ class _HomeScreenState extends State<HomeScreen> {
         label: const Text('새 녹음'),
       ),
     );
+  }
+
+  Future<void> _onImportPressed() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: RecordingImportService.supportedExtensions.toList()
+          ..sort(),
+        allowMultiple: false,
+        withData: false,
+      );
+
+      if (!mounted || result == null) return; // canceled
+      if (result.files.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('파일을 선택하지 못했어요.')));
+        return;
+      }
+
+      final file = result.files.single;
+      final path = file.path;
+      if (path == null || path.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('파일 경로를 찾을 수 없어요.')));
+        return;
+      }
+
+      final imported = await _importService.importFromPath(
+        sourcePath: path,
+        originalName: file.name,
+      );
+
+      final now = DateTime.now();
+      final recording = Recording(
+        id: 'imported_${now.millisecondsSinceEpoch}',
+        filePath: imported.filePath,
+        createdAt: now,
+        duration: Duration.zero,
+      );
+
+      await _repo.add(recording);
+      await _load();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('가져오기 완료: ${imported.fileName}')));
+    } on RecordingImportException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('가져오기 중 오류가 발생했어요.')));
+    }
   }
 
   Widget _buildStatItem({

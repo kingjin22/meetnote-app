@@ -46,6 +46,9 @@ dependencies:
   # Playback
   just_audio: ^0.9.38
 
+  # Files
+  file_picker: ^8.1.7
+
   # UI packages
   material_design_icons_flutter: ^7.0.7296
 

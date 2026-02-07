@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 import '../models/recording.dart';
@@ -9,6 +10,7 @@ import '../models/recording_result.dart';
 import '../repositories/local_recording_repository.dart';
 import '../services/audio_playback_controller.dart';
 import '../services/recording_import_service.dart';
+import '../services/transcription_service.dart';
 import 'recording_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -22,8 +24,10 @@ class _HomeScreenState extends State<HomeScreen> {
   final _repo = LocalRecordingRepository();
   final _playback = AudioPlaybackController();
   final _importService = RecordingImportService();
+  final _transcriptionService = TranscriptionService();
 
   List<Recording> _recordings = [];
+  final Set<String> _transcribingIds = {};
 
   @override
   void initState() {
@@ -271,6 +275,9 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, _) {
         final isCurrent = _playback.currentRecordingId == recording.id;
         final isPlaying = isCurrent && _playback.isPlaying;
+        final isTranscribing = _transcribingIds.contains(recording.id);
+        final hasTranscript =
+            (recording.transcriptText ?? '').trim().isNotEmpty;
 
         final total = isCurrent && _playback.duration != Duration.zero
             ? _playback.duration
@@ -316,6 +323,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 trailing: PopupMenuButton<String>(
                   onSelected: (value) async {
                     switch (value) {
+                      case 'transcribe':
+                        await _startTranscription(recording);
+                        break;
+                      case 'view_transcript':
+                        await _showTranscriptSheet(recording);
+                        break;
                       case 'path':
                         await showModalBottomSheet<void>(
                           context: context,
@@ -353,8 +366,30 @@ class _HomeScreenState extends State<HomeScreen> {
                         break;
                     }
                   },
-                  itemBuilder: (context) => const [
+                  itemBuilder: (context) => [
                     PopupMenuItem(
+                      value: 'transcribe',
+                      enabled: !isTranscribing,
+                      child: Row(
+                        children: [
+                          Icon(MdiIcons.textBox),
+                          const SizedBox(width: 8),
+                          Text(isTranscribing ? '텍스트 변환 중...' : '텍스트 변환'),
+                        ],
+                      ),
+                    ),
+                    if (hasTranscript)
+                      const PopupMenuItem(
+                        value: 'view_transcript',
+                        child: Row(
+                          children: [
+                            Icon(Icons.description_outlined),
+                            SizedBox(width: 8),
+                            Text('텍스트 보기'),
+                          ],
+                        ),
+                      ),
+                    const PopupMenuItem(
                       value: 'path',
                       child: Row(
                         children: [
@@ -364,7 +399,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
-                    PopupMenuItem(
+                    const PopupMenuItem(
                       value: 'delete',
                       child: Row(
                         children: [
@@ -382,7 +417,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     filePath: recording.filePath,
                   );
 
-                  if (!mounted || error == null) return;
+                  if (!context.mounted || error == null) return;
                   ScaffoldMessenger.of(
                     context,
                   ).showSnackBar(SnackBar(content: Text(error)));
@@ -482,5 +517,146 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       return '${dateTime.month}/${dateTime.day}';
     }
+  }
+
+  Future<void> _startTranscription(Recording recording) async {
+    if (_transcribingIds.contains(recording.id)) return;
+
+    setState(() {
+      _transcribingIds.add(recording.id);
+    });
+
+    var dialogShown = false;
+    if (mounted) {
+      dialogShown = true;
+      unawaited(
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const AlertDialog(
+            title: Text('텍스트 변환 중'),
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Expanded(child: Text('오디오를 분석하고 있어요...')),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    try {
+      final text = await _transcriptionService.transcribeFile(
+        recording.filePath,
+      );
+      final summary = _buildSummary(text);
+      final updated = recording.copyWith(
+        transcriptText: text,
+        summaryText: summary,
+      );
+      await _repo.update(updated);
+      await _load();
+      if (!mounted) return;
+      if (dialogShown) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      await _showTranscriptSheet(updated);
+    } catch (e) {
+      if (!mounted) return;
+      if (dialogShown) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      final message = _messageForTranscriptionError(e);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _transcribingIds.remove(recording.id);
+        });
+      }
+    }
+  }
+
+  String _buildSummary(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return '';
+
+    final parts = trimmed
+        .split(RegExp(r'(?<=[.!?\\n])\\s+'))
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    String summary;
+    if (parts.isEmpty) {
+      summary = trimmed;
+    } else {
+      final count = parts.length >= 3 ? 3 : (parts.length >= 2 ? 2 : 1);
+      summary = parts.take(count).join(' ');
+    }
+
+    if (summary.length > 300) {
+      summary = summary.substring(0, 300);
+    }
+
+    return summary;
+  }
+
+  String _messageForTranscriptionError(Object error) {
+    if (error is PlatformException && error.message != null) {
+      return error.message!;
+    }
+    return '텍스트 변환에 실패했어요.';
+  }
+
+  Future<void> _showTranscriptSheet(Recording recording) {
+    final transcript = (recording.transcriptText ?? '').trim();
+    final summary = (recording.summaryText ?? '').trim();
+
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 8),
+                  Text(
+                    '요약',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  SelectableText(
+                    summary.isEmpty ? '요약이 없어요.' : summary,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    '전체 텍스트',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  SelectableText(
+                    transcript.isEmpty ? '변환된 텍스트가 없어요.' : transcript,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 }

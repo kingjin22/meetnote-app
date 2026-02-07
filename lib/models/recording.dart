@@ -5,12 +5,16 @@ class Recording {
   final String filePath;
   final DateTime createdAt;
   final Duration duration;
+  final String? transcriptText;
+  final String? summaryText;
 
   const Recording({
     required this.id,
     required this.filePath,
     required this.createdAt,
     required this.duration,
+    this.transcriptText,
+    this.summaryText,
   });
 
   Map<String, Object?> toMap() {
@@ -19,6 +23,8 @@ class Recording {
       'filePath': filePath,
       'createdAtMs': createdAt.millisecondsSinceEpoch,
       'durationMs': duration.inMilliseconds,
+      'transcriptText': transcriptText,
+      'summaryText': summaryText,
     };
   }
 
@@ -28,6 +34,8 @@ class Recording {
       filePath: map['filePath'] as String,
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAtMs'] as int),
       duration: Duration(milliseconds: map['durationMs'] as int),
+      transcriptText: map['transcriptText'] as String?,
+      summaryText: map['summaryText'] as String?,
     );
   }
 
@@ -35,5 +43,19 @@ class Recording {
 
   factory Recording.fromJson(String json) {
     return Recording.fromMap(jsonDecode(json) as Map<String, Object?>);
+  }
+
+  Recording copyWith({
+    String? transcriptText,
+    String? summaryText,
+  }) {
+    return Recording(
+      id: id,
+      filePath: filePath,
+      createdAt: createdAt,
+      duration: duration,
+      transcriptText: transcriptText ?? this.transcriptText,
+      summaryText: summaryText ?? this.summaryText,
+    );
   }
 }

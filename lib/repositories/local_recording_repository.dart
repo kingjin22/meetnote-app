@@ -7,7 +7,8 @@ import '../models/recording.dart';
 import 'recording_repository.dart';
 
 class LocalRecordingRepository implements RecordingRepository {
-  static const _kKey = 'recordings_v1';
+  static const _kKey = 'recordings_v2';
+  static const _kLegacyKey = 'recordings_v1';
 
   @override
   Future<List<Recording>> list() async {
@@ -47,6 +48,19 @@ class LocalRecordingRepository implements RecordingRepository {
   }
 
   @override
+  Future<void> update(Recording recording) async {
+    final prefs = await SharedPreferences.getInstance();
+    final items = await _readList(prefs);
+    final index = items.indexWhere((e) => e['id'] == recording.id);
+    if (index >= 0) {
+      items[index] = recording.toMap();
+    } else {
+      items.add(recording.toMap());
+    }
+    await prefs.setString(_kKey, jsonEncode(items));
+  }
+
+  @override
   Future<void> deleteById(String id) async {
     final prefs = await SharedPreferences.getInstance();
     final items = await _readList(prefs);
@@ -72,8 +86,21 @@ class LocalRecordingRepository implements RecordingRepository {
 
   Future<List<Map<String, Object?>>> _readList(SharedPreferences prefs) async {
     final raw = prefs.getString(_kKey);
-    if (raw == null || raw.isEmpty) return [];
+    if (raw == null || raw.isEmpty) {
+      final legacy = prefs.getString(_kLegacyKey);
+      if (legacy == null || legacy.isEmpty) return [];
+      final migrated = _decodeList(legacy);
+      if (migrated.isNotEmpty) {
+        await prefs.setString(_kKey, jsonEncode(migrated));
+        await prefs.remove(_kLegacyKey);
+      }
+      return migrated;
+    }
 
+    return _decodeList(raw);
+  }
+
+  List<Map<String, Object?>> _decodeList(String raw) {
     final decoded = jsonDecode(raw);
     if (decoded is! List) return [];
 

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,18 +12,30 @@ class LocalRecordingRepository implements RecordingRepository {
   @override
   Future<List<Recording>> list() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_kKey);
-    if (raw == null || raw.isEmpty) return [];
+    final maps = await _readList(prefs);
+    if (maps.isEmpty) return [];
 
-    final decoded = jsonDecode(raw);
-    if (decoded is! List) return [];
+    final recordings = <Recording>[];
+    var changed = false;
 
-    return decoded
-        .whereType<Map>()
-        .map((e) => Recording.fromMap(e.cast<String, Object?>()))
-        .toList()
-        .reversed
-        .toList();
+    for (final map in maps) {
+      final rec = Recording.fromMap(map);
+      final exists = await File(rec.filePath).exists();
+      if (!exists) {
+        changed = true;
+        continue;
+      }
+      recordings.add(rec);
+    }
+
+    if (changed) {
+      await prefs.setString(
+        _kKey,
+        jsonEncode(recordings.map((e) => e.toMap()).toList()),
+      );
+    }
+
+    return recordings.reversed.toList();
   }
 
   @override
@@ -37,8 +50,24 @@ class LocalRecordingRepository implements RecordingRepository {
   Future<void> deleteById(String id) async {
     final prefs = await SharedPreferences.getInstance();
     final items = await _readList(prefs);
-    items.removeWhere((e) => e['id'] == id);
-    await prefs.setString(_kKey, jsonEncode(items));
+
+    final index = items.indexWhere((e) => e['id'] == id);
+    if (index >= 0) {
+      final filePath = items[index]['filePath'];
+      if (filePath is String && filePath.isNotEmpty) {
+        try {
+          final file = File(filePath);
+          if (await file.exists()) {
+            await file.delete();
+          }
+        } catch (_) {
+          // best-effort
+        }
+      }
+
+      items.removeAt(index);
+      await prefs.setString(_kKey, jsonEncode(items));
+    }
   }
 
   Future<List<Map<String, Object?>>> _readList(SharedPreferences prefs) async {

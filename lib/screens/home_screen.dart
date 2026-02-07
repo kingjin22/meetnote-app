@@ -100,8 +100,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 createdAt: now,
                 duration: _formatDuration(result.duration),
                 status: '완료',
-                hasTranscript: true,
-                transcript: result.transcript,
+                hasTranscript: false,
+                transcript: null,
               ),
             );
           });

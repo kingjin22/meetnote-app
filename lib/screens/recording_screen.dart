@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:speech_to_text/speech_recognition_result.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+import 'package:uuid/uuid.dart';
 
 import '../models/recording_result.dart';
+import '../services/audio_recorder_service.dart';
+import '../services/microphone_permission_service.dart';
 
 class RecordingScreen extends StatefulWidget {
   const RecordingScreen({super.key});
@@ -17,171 +18,143 @@ class RecordingScreen extends StatefulWidget {
 
 class _RecordingScreenState extends State<RecordingScreen>
     with TickerProviderStateMixin {
-  final SpeechToText _speechToText = SpeechToText();
-  
-  bool _speechEnabled = false;
-  bool _isListening = false;
-  String _lastWords = '';
-  String _fullTranscript = '';
-  
-  Timer? _recordingTimer;
-  Duration _recordingDuration = Duration.zero;
-  
-  late AnimationController _pulseController;
-  late AnimationController _waveController;
-  
+  final _permissionService = MicrophonePermissionService();
+  final _recorderService = AudioRecorderService();
+
+  bool _isRecording = false;
+  String? _filePath;
+
+  Timer? _timer;
+  Duration _duration = Duration.zero;
+
+  late final AnimationController _pulseController;
+
   @override
   void initState() {
     super.initState();
-    _initSpeech();
-    _setupAnimations();
-  }
-  
-  @override
-  void dispose() {
-    _recordingTimer?.cancel();
-    _pulseController.dispose();
-    _waveController.dispose();
-    super.dispose();
-  }
-  
-  void _setupAnimations() {
     _pulseController = AnimationController(
       duration: const Duration(seconds: 1),
       vsync: this,
     );
-    
-    _waveController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    );
   }
-  
-  /// Initialize speech recognition
-  Future<void> _initSpeech() async {
-    // Check microphone permission
-    final permission = await Permission.microphone.request();
-    if (permission != PermissionStatus.granted) {
-      _showPermissionDialog();
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _pulseController.dispose();
+    _recorderService.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggleRecording() async {
+    if (_isRecording) {
+      await _stopRecording();
+    } else {
+      await _startRecording();
+    }
+  }
+
+  Future<void> _startRecording() async {
+    final status = await _permissionService.request();
+    if (!status.isGranted) {
+      await _showPermissionDialog(status);
       return;
     }
-    
-    _speechEnabled = await _speechToText.initialize();
-    setState(() {});
-  }
-  
-  /// Start listening for speech
-  Future<void> _startListening() async {
-    if (!_speechEnabled) return;
-    
-    await _speechToText.listen(
-      onResult: _onSpeechResult,
-      listenFor: const Duration(minutes: 10), // 최대 10분
-      pauseFor: const Duration(seconds: 3),
-      localeId: 'ko-KR', // 한국어 설정
-    );
-    
+
+    final filePath = await _recorderService.start();
+
     setState(() {
-      _isListening = true;
-      _recordingDuration = Duration.zero;
+      _isRecording = true;
+      _filePath = filePath;
+      _duration = Duration.zero;
     });
-    
-    // 녹음 시간 타이머 시작
+
     _startTimer();
-    
-    // 애니메이션 시작
     _pulseController.repeat();
-    _waveController.repeat();
   }
-  
-  /// Stop listening
-  Future<void> _stopListening() async {
-    await _speechToText.stop();
+
+  Future<void> _stopRecording() async {
+    await _recorderService.stop();
+
     setState(() {
-      _isListening = false;
+      _isRecording = false;
     });
-    
+
     _stopTimer();
     _pulseController.stop();
-    _waveController.stop();
   }
-  
-  /// Handle speech recognition result
-  void _onSpeechResult(SpeechRecognitionResult result) {
-    setState(() {
-      _lastWords = result.recognizedWords;
-      if (result.finalResult) {
-        _fullTranscript += '${result.recognizedWords} ';
-      }
-    });
-  }
-  
+
   void _startTimer() {
-    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
-        _recordingDuration = Duration(seconds: timer.tick);
+        _duration = Duration(seconds: timer.tick);
       });
     });
   }
-  
+
   void _stopTimer() {
-    _recordingTimer?.cancel();
-    _recordingTimer = null;
+    _timer?.cancel();
+    _timer = null;
   }
-  
-  void _showPermissionDialog() {
-    showDialog(
+
+  Future<void> _showPermissionDialog(PermissionStatus status) async {
+    final shouldOpenSettings = status.isPermanentlyDenied || status.isRestricted;
+
+    await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('마이크 권한이 필요합니다'),
-        content: const Text('음성 녹음을 위해 마이크 권한을 허용해주세요.'),
+        content: const Text('녹음을 위해 마이크 권한을 허용해주세요.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
+            child: const Text('닫기'),
           ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              openAppSettings();
-            },
-            child: const Text('설정으로 이동'),
-          ),
+          if (shouldOpenSettings)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _permissionService.openSettings();
+              },
+              child: const Text('설정으로 이동'),
+            ),
         ],
       ),
     );
   }
-  
-  Future<void> _saveAndProcess() async {
-    final transcript = (_fullTranscript + _lastWords).trim();
-    if (transcript.isEmpty) {
+
+  void _finish() {
+    final filePath = _filePath;
+    if (filePath == null || filePath.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('녹음된 내용이 없습니다.')),
+        const SnackBar(content: Text('저장된 녹음 파일이 없습니다.')),
       );
       return;
     }
 
-    // TODO: 실제 저장(오디오 파일) + 요약/회의록 생성(GPT) 연결
-    // 지금은 홈 화면에 전사 텍스트와 녹음 시간을 넘겨주는 MVP 흐름만 유지.
-
     Navigator.of(context).pop(
       RecordingResult(
-        transcript: transcript,
-        duration: _recordingDuration,
+        recordingId: const Uuid().v4(),
+        filePath: filePath,
+        duration: _duration,
+        createdAt: DateTime.now(),
       ),
     );
   }
-  
+
   @override
   Widget build(BuildContext context) {
+    final canFinish = !_isRecording && (_filePath?.isNotEmpty ?? false);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('음성 녹음'),
+        title: const Text('녹음'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          if (_isListening || _fullTranscript.isNotEmpty)
+          if (canFinish)
             TextButton(
-              onPressed: _saveAndProcess,
+              onPressed: _finish,
               child: const Text('완료'),
             ),
         ],
@@ -190,66 +163,38 @@ class _RecordingScreenState extends State<RecordingScreen>
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
-            // 녹음 시간 표시
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.secondaryContainer,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    MdiIcons.clock,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.onSecondaryContainer,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _formatDuration(_recordingDuration),
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSecondaryContainer,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
+            _TimerChip(duration: _duration),
             const SizedBox(height: 32),
-            
-            // 녹음 버튼
             Expanded(
               flex: 2,
               child: Center(
                 child: GestureDetector(
-                  onTap: _speechEnabled
-                      ? (_isListening ? _stopListening : _startListening)
-                      : null,
+                  onTap: _toggleRecording,
                   child: AnimatedBuilder(
                     animation: _pulseController,
                     builder: (context, child) {
+                      final extra =
+                          _isRecording ? _pulseController.value * 20.0 : 0.0;
                       return Container(
-                        width: 200 + (_isListening ? _pulseController.value * 20 : 0),
-                        height: 200 + (_isListening ? _pulseController.value * 20 : 0),
+                        width: 200.0 + extra,
+                        height: 200.0 + extra,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: _isListening
-                              ? Colors.red.withValues(alpha: 0.8)
+                          color: _isRecording
+                              ? Colors.red.withValues(alpha: 0.85)
                               : Theme.of(context).colorScheme.primary,
-                          boxShadow: _isListening
+                          boxShadow: _isRecording
                               ? [
                                   BoxShadow(
-                                    color: Colors.red.withValues(alpha: 0.3),
-                                    spreadRadius: _pulseController.value * 30,
-                                    blurRadius: 20,
+                                    color: Colors.red.withValues(alpha: 0.25),
+                                    spreadRadius: _pulseController.value * 28,
+                                    blurRadius: 18,
                                   ),
                                 ]
                               : [],
                         ),
                         child: Icon(
-                          _isListening ? MdiIcons.stop : MdiIcons.microphone,
+                          _isRecording ? MdiIcons.stop : MdiIcons.microphone,
                           size: 80,
                           color: Colors.white,
                         ),
@@ -259,10 +204,8 @@ class _RecordingScreenState extends State<RecordingScreen>
                 ),
               ),
             ),
-            
-            // 실시간 전사 결과
             Expanded(
-              flex: 3,
+              flex: 2,
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
@@ -270,65 +213,98 @@ class _RecordingScreenState extends State<RecordingScreen>
                   color: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .outline
+                        .withValues(alpha: 0.5),
                   ),
                 ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            MdiIcons.text,
-                            size: 16,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '실시간 전사',
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _fullTranscript.isEmpty && _lastWords.isEmpty
-                            ? (_isListening
-                                ? '음성을 인식하고 있습니다...'
-                                : '녹음을 시작하면 실시간으로 텍스트가 표시됩니다.')
-                            : _fullTranscript + _lastWords,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          height: 1.5,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          MdiIcons.file,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.primary,
                         ),
-                      ),
-                    ],
-                  ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '저장 경로',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SelectableText(
+                      _filePath ??
+                          (_isRecording
+                              ? '녹음 파일을 준비 중...' // start() 직후
+                              : '녹음을 시작하면 파일이 생성됩니다.'),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            height: 1.4,
+                          ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      _isRecording
+                          ? '녹음 중입니다. 버튼을 눌러 정지하세요.'
+                          : '버튼을 눌러 녹음을 시작하세요.',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyMedium
+                          ?.copyWith(color: Colors.grey[600]),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ),
               ),
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // 하단 안내
-            Text(
-              _isListening
-                  ? '녹음 중입니다. 빨간 버튼을 눌러 중지하세요.'
-                  : '마이크 버튼을 눌러 녹음을 시작하세요.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.grey[600],
-              ),
-              textAlign: TextAlign.center,
             ),
           ],
         ),
       ),
     );
   }
-  
-  String _formatDuration(Duration duration) {
+}
+
+class _TimerChip extends StatelessWidget {
+  final Duration duration;
+
+  const _TimerChip({required this.duration});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            MdiIcons.clock,
+            size: 16,
+            color: Theme.of(context).colorScheme.onSecondaryContainer,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _format(duration),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSecondaryContainer,
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _format(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final minutes = twoDigits(duration.inMinutes.remainder(60));
     final seconds = twoDigits(duration.inSeconds.remainder(60));

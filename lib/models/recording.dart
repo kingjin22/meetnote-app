@@ -1,5 +1,22 @@
 import 'dart:convert';
 
+enum TranscriptionStatus {
+  none,
+  pending,
+  success,
+  failed;
+
+  String toJson() => name;
+
+  static TranscriptionStatus fromJson(String? value) {
+    if (value == null) return TranscriptionStatus.none;
+    return TranscriptionStatus.values.firstWhere(
+      (e) => e.name == value,
+      orElse: () => TranscriptionStatus.none,
+    );
+  }
+}
+
 class Recording {
   final String id;
   final String filePath;
@@ -7,6 +24,10 @@ class Recording {
   final Duration duration;
   final String? transcriptText;
   final String? summaryText;
+  final TranscriptionStatus transcriptionStatus;
+  final String? transcriptionError;
+  final int transcriptionRetryCount;
+  final DateTime? transcriptionCompletedAt;
 
   const Recording({
     required this.id,
@@ -15,6 +36,10 @@ class Recording {
     required this.duration,
     this.transcriptText,
     this.summaryText,
+    this.transcriptionStatus = TranscriptionStatus.none,
+    this.transcriptionError,
+    this.transcriptionRetryCount = 0,
+    this.transcriptionCompletedAt,
   });
 
   Map<String, Object?> toMap() {
@@ -25,10 +50,15 @@ class Recording {
       'durationMs': duration.inMilliseconds,
       'transcriptText': transcriptText,
       'summaryText': summaryText,
+      'transcriptionStatus': transcriptionStatus.toJson(),
+      'transcriptionError': transcriptionError,
+      'transcriptionRetryCount': transcriptionRetryCount,
+      'transcriptionCompletedAtMs': transcriptionCompletedAt?.millisecondsSinceEpoch,
     };
   }
 
   factory Recording.fromMap(Map<String, Object?> map) {
+    final transcriptionCompletedAtMs = map['transcriptionCompletedAtMs'] as int?;
     return Recording(
       id: map['id'] as String,
       filePath: map['filePath'] as String,
@@ -36,6 +66,14 @@ class Recording {
       duration: Duration(milliseconds: map['durationMs'] as int),
       transcriptText: map['transcriptText'] as String?,
       summaryText: map['summaryText'] as String?,
+      transcriptionStatus: TranscriptionStatus.fromJson(
+        map['transcriptionStatus'] as String?,
+      ),
+      transcriptionError: map['transcriptionError'] as String?,
+      transcriptionRetryCount: (map['transcriptionRetryCount'] as int?) ?? 0,
+      transcriptionCompletedAt: transcriptionCompletedAtMs != null
+          ? DateTime.fromMillisecondsSinceEpoch(transcriptionCompletedAtMs)
+          : null,
     );
   }
 
@@ -48,6 +86,11 @@ class Recording {
   Recording copyWith({
     String? transcriptText,
     String? summaryText,
+    TranscriptionStatus? transcriptionStatus,
+    String? transcriptionError,
+    int? transcriptionRetryCount,
+    DateTime? transcriptionCompletedAt,
+    bool clearTranscriptionError = false,
   }) {
     return Recording(
       id: id,
@@ -56,6 +99,12 @@ class Recording {
       duration: duration,
       transcriptText: transcriptText ?? this.transcriptText,
       summaryText: summaryText ?? this.summaryText,
+      transcriptionStatus: transcriptionStatus ?? this.transcriptionStatus,
+      transcriptionError: clearTranscriptionError
+          ? null
+          : (transcriptionError ?? this.transcriptionError),
+      transcriptionRetryCount: transcriptionRetryCount ?? this.transcriptionRetryCount,
+      transcriptionCompletedAt: transcriptionCompletedAt ?? this.transcriptionCompletedAt,
     );
   }
 }

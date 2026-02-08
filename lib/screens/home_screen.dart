@@ -279,9 +279,9 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, _) {
         final isCurrent = _playback.currentRecordingId == recording.id;
         final isPlaying = isCurrent && _playback.isPlaying;
-        final isTranscribing = _transcribingIds.contains(recording.id);
-        final hasTranscript =
-            (recording.transcriptText ?? '').trim().isNotEmpty;
+        final isTranscribing = recording.transcriptionStatus == TranscriptionStatus.pending;
+        final hasTranscript = recording.transcriptionStatus == TranscriptionStatus.success;
+        final hasFailed = recording.transcriptionStatus == TranscriptionStatus.failed;
 
         final total = isCurrent && _playback.duration != Duration.zero
             ? _playback.duration
@@ -316,11 +316,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       _formatDate(recording.createdAt),
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    Text(
-                      '${_formatDuration(recording.duration)} • 로컬 저장',
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: Colors.green),
+                    Row(
+                      children: [
+                        Text(
+                          '${_formatDuration(recording.duration)} • ',
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(color: Colors.green),
+                        ),
+                        _buildTranscriptionStatusChip(recording),
+                      ],
                     ),
                   ],
                 ),
@@ -371,19 +376,33 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
                   },
                   itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: 'transcribe',
-                      enabled: !isTranscribing && _transcribingIds.isEmpty,
-                      child: Row(
-                        children: [
-                          Icon(MdiIcons.textBox),
-                          const SizedBox(width: 8),
-                          Text(
-                            isTranscribing ? '텍스트 변환 중...' : '텍스트 변환',
-                          ),
-                        ],
+                    if (!hasTranscript && !isTranscribing)
+                      PopupMenuItem(
+                        value: 'transcribe',
+                        enabled: _transcribingIds.isEmpty,
+                        child: Row(
+                          children: [
+                            Icon(MdiIcons.textBox),
+                            const SizedBox(width: 8),
+                            Text('텍스트 변환'),
+                          ],
+                        ),
                       ),
-                    ),
+                    if (hasFailed)
+                      PopupMenuItem(
+                        value: 'transcribe',
+                        enabled: _transcribingIds.isEmpty,
+                        child: Row(
+                          children: [
+                            Icon(Icons.refresh, color: Colors.orange),
+                            const SizedBox(width: 8),
+                            Text(
+                              '재시도 (${recording.transcriptionRetryCount}회)',
+                              style: TextStyle(color: Colors.orange),
+                            ),
+                          ],
+                        ),
+                      ),
                     if (hasTranscript)
                       const PopupMenuItem(
                         value: 'view_transcript',
@@ -541,7 +560,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _startTranscription(Recording recording) async {
-    if (_transcribingIds.contains(recording.id)) return;
+    // 이미 진행 중인지 확인
+    if (recording.transcriptionStatus == TranscriptionStatus.pending) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('이미 텍스트 변환이 진행 중이에요.')),
+      );
+      return;
+    }
+
+    // 다른 작업이 진행 중인지 확인
     if (_transcribingIds.isNotEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -550,32 +578,56 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    // pending 상태로 업데이트
+    final pending = recording.copyWith(
+      transcriptionStatus: TranscriptionStatus.pending,
+      clearTranscriptionError: true,
+    );
+    await _repo.update(pending);
+
     setState(() {
       _transcribingIds.add(recording.id);
     });
 
+    await _load();
     _showTranscriptionProgress();
 
     try {
-      final text = await _transcriptionService.transcribeFile(
+      final text = await _transcriptionService.transcribeFileWithRetry(
         recording.filePath,
+        maxRetries: 3,
       );
       final summary = _buildSummary(text);
       final updated = recording.copyWith(
         transcriptText: text,
         summaryText: summary,
+        transcriptionStatus: TranscriptionStatus.success,
+        transcriptionCompletedAt: DateTime.now(),
+        clearTranscriptionError: true,
       );
       await _repo.update(updated);
       await _load();
+
       if (!mounted) return;
       _dismissTranscriptionProgress();
       setState(() {
         _transcribingIds.remove(recording.id);
       });
+
       final persisted = await _repo.getById(recording.id);
       if (!mounted) return;
       await _showTranscriptSheet(persisted ?? updated);
     } catch (e) {
+      // 실패 상태로 업데이트
+      final errorMessage = _messageForTranscriptionError(e);
+      final failed = recording.copyWith(
+        transcriptionStatus: TranscriptionStatus.failed,
+        transcriptionError: errorMessage,
+        transcriptionRetryCount: recording.transcriptionRetryCount + 1,
+      );
+      await _repo.update(failed);
+      await _load();
+
       if (!mounted) return;
       _dismissTranscriptionProgress();
       if (mounted) {
@@ -743,5 +795,66 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+  }
+
+  Widget _buildTranscriptionStatusChip(Recording recording) {
+    switch (recording.transcriptionStatus) {
+      case TranscriptionStatus.none:
+        return Text(
+          '로컬 저장',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Colors.grey[600],
+          ),
+        );
+      case TranscriptionStatus.pending:
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.blue,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '변환 중',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.blue,
+              ),
+            ),
+          ],
+        );
+      case TranscriptionStatus.success:
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check_circle, size: 14, color: Colors.green),
+            const SizedBox(width: 4),
+            Text(
+              '변환 완료',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.green,
+              ),
+            ),
+          ],
+        );
+      case TranscriptionStatus.failed:
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error, size: 14, color: Colors.red),
+            const SizedBox(width: 4),
+            Text(
+              '변환 실패',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.red,
+              ),
+            ),
+          ],
+        );
+    }
   }
 }

@@ -30,6 +30,11 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Recording> _recordings = [];
   final Set<String> _transcribingIds = {};
   bool _progressDialogVisible = false;
+  
+  // 진행률 상태
+  double? _transcriptionProgress;
+  int? _currentChunk;
+  int? _totalChunks;
 
   @override
   void initState() {
@@ -69,7 +74,12 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Column(
         children: [
           if (_transcribingIds.isNotEmpty)
-            TranscriptionProgressBanner(activeCount: _transcribingIds.length),
+            TranscriptionProgressBanner(
+              activeCount: _transcribingIds.length,
+              progress: _transcriptionProgress,
+              currentChunk: _currentChunk,
+              totalChunks: _totalChunks,
+            ),
           Container(
             margin: const EdgeInsets.all(16),
             padding: const EdgeInsets.all(20),
@@ -596,6 +606,14 @@ class _HomeScreenState extends State<HomeScreen> {
       final text = await _transcriptionService.transcribeFileWithRetry(
         recording.filePath,
         maxRetries: 3,
+        onProgress: (progress) {
+          if (!mounted) return;
+          setState(() {
+            _transcriptionProgress = progress.percentage;
+            _currentChunk = progress.currentChunk;
+            _totalChunks = progress.totalChunks;
+          });
+        },
       );
       final summary = _buildSummary(text);
       final updated = recording.copyWith(
@@ -612,6 +630,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _dismissTranscriptionProgress();
       setState(() {
         _transcribingIds.remove(recording.id);
+        _transcriptionProgress = null;
+        _currentChunk = null;
+        _totalChunks = null;
       });
 
       final persisted = await _repo.getById(recording.id);
@@ -633,6 +654,9 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           _transcribingIds.remove(recording.id);
+          _transcriptionProgress = null;
+          _currentChunk = null;
+          _totalChunks = null;
         });
       }
       await _showTranscriptionErrorDialog(recording, e);

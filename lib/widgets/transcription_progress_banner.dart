@@ -2,8 +2,17 @@ import 'package:flutter/material.dart';
 
 class TranscriptionProgressBanner extends StatelessWidget {
   final int activeCount;
+  final double? progress;
+  final int? currentChunk;
+  final int? totalChunks;
 
-  const TranscriptionProgressBanner({super.key, required this.activeCount});
+  const TranscriptionProgressBanner({
+    super.key,
+    required this.activeCount,
+    this.progress,
+    this.currentChunk,
+    this.totalChunks,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -11,6 +20,14 @@ class TranscriptionProgressBanner extends StatelessWidget {
     final label = activeCount > 1
         ? '텍스트 변환을 $activeCount개 진행 중이에요.'
         : '텍스트 변환 중이에요.';
+    
+    final progressText = totalChunks != null && currentChunk != null
+        ? '$currentChunk / $totalChunks 청크 처리 중'
+        : '완료되면 바로 결과 화면으로 안내할게요.';
+    
+    final progressPercentage = progress != null
+        ? '${(progress! * 100).toStringAsFixed(0)}%'
+        : null;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -22,19 +39,36 @@ class TranscriptionProgressBanner extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              if (progressPercentage != null)
+                Text(
+                  progressPercentage,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 8),
           Text(
-            '완료되면 바로 결과 화면으로 안내할게요.',
+            progressText,
             style: theme.textTheme.bodySmall,
           ),
           const SizedBox(height: 12),
-          const LinearProgressIndicator(),
+          progress != null
+              ? LinearProgressIndicator(value: progress)
+              : const LinearProgressIndicator(),
         ],
       ),
     );

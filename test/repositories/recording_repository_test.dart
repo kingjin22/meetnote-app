@@ -215,5 +215,81 @@ void main() {
       expect(retrieved[3].id, 'rec-1');
       expect(retrieved[3].transcriptionStatus, TranscriptionStatus.none);
     });
+
+    test('can filter pending recordings for retry on app restart', () async {
+      // 여러 상태의 녹음 추가
+      final recordings = [
+        Recording(
+          id: 'normal',
+          filePath: await _createTestFile('normal.m4a'),
+          createdAt: DateTime.now(),
+          duration: const Duration(minutes: 1),
+          transcriptionStatus: TranscriptionStatus.none,
+        ),
+        Recording(
+          id: 'pending-1',
+          filePath: await _createTestFile('pending1.m4a'),
+          createdAt: DateTime.now(),
+          duration: const Duration(minutes: 2),
+          transcriptionStatus: TranscriptionStatus.pending,
+        ),
+        Recording(
+          id: 'pending-2',
+          filePath: await _createTestFile('pending2.m4a'),
+          createdAt: DateTime.now(),
+          duration: const Duration(minutes: 3),
+          transcriptionStatus: TranscriptionStatus.pending,
+        ),
+        Recording(
+          id: 'success',
+          filePath: await _createTestFile('success.m4a'),
+          createdAt: DateTime.now(),
+          duration: const Duration(minutes: 4),
+          transcriptionStatus: TranscriptionStatus.success,
+          transcriptText: 'Done',
+        ),
+      ];
+
+      for (final rec in recordings) {
+        await repository.add(rec);
+      }
+
+      // pending 상태 필터링
+      final allRecordings = await repository.list();
+      final pendingRecordings = allRecordings
+          .where((r) => r.transcriptionStatus == TranscriptionStatus.pending)
+          .toList();
+
+      expect(pendingRecordings.length, 2);
+      expect(pendingRecordings.any((r) => r.id == 'pending-1'), true);
+      expect(pendingRecordings.any((r) => r.id == 'pending-2'), true);
+
+      // pending을 failed로 변경 (앱 재시작 시나리오)
+      for (final pending in pendingRecordings) {
+        final updated = pending.copyWith(
+          transcriptionStatus: TranscriptionStatus.failed,
+          transcriptionError: '앱이 종료되어 변환이 중단되었습니다.',
+          transcriptionRetryCount: pending.transcriptionRetryCount + 1,
+        );
+        await repository.update(updated);
+      }
+
+      // 검증
+      final afterUpdate = await repository.list();
+      final stillPending = afterUpdate
+          .where((r) => r.transcriptionStatus == TranscriptionStatus.pending)
+          .toList();
+      final nowFailed = afterUpdate
+          .where((r) => r.transcriptionStatus == TranscriptionStatus.failed)
+          .toList();
+
+      expect(stillPending.length, 0);
+      expect(nowFailed.length, 2);
+
+      final failed1 = await repository.getById('pending-1');
+      expect(failed1!.transcriptionStatus, TranscriptionStatus.failed);
+      expect(failed1.transcriptionError, '앱이 종료되어 변환이 중단되었습니다.');
+      expect(failed1.transcriptionRetryCount, 1);
+    });
   });
 }

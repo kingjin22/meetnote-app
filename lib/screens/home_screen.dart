@@ -41,6 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     unawaited(_load());
+    unawaited(_retryPendingTranscriptions());
   }
 
   Future<void> _load() async {
@@ -49,6 +50,56 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _recordings = items;
     });
+  }
+
+  /// 앱 시작 시 pending 상태인 녹음을 자동으로 재시도
+  Future<void> _retryPendingTranscriptions() async {
+    // 데이터 로드 대기
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    
+    final recordings = await _repo.list();
+    final pendingRecordings = recordings.where(
+      (r) => r.transcriptionStatus == TranscriptionStatus.pending,
+    ).toList();
+
+    if (pendingRecordings.isEmpty) return;
+
+    // pending 상태를 failed로 변경하고 재시도 카운트 증가
+    for (final recording in pendingRecordings) {
+      final updated = recording.copyWith(
+        transcriptionStatus: TranscriptionStatus.failed,
+        transcriptionError: '앱이 종료되어 변환이 중단되었습니다.',
+        transcriptionRetryCount: recording.transcriptionRetryCount + 1,
+      );
+      await _repo.update(updated);
+    }
+
+    await _load();
+
+    if (!mounted) return;
+
+    // 사용자에게 알림
+    if (pendingRecordings.length == 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('중단된 텍스트 변환이 ${pendingRecordings.length}개 있어요. 다시 시도해주세요.'),
+          action: SnackBarAction(
+            label: '확인',
+            onPressed: () {},
+          ),
+        ),
+      );
+    } else if (pendingRecordings.length > 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('중단된 텍스트 변환이 ${pendingRecordings.length}개 있어요. 다시 시도해주세요.'),
+          action: SnackBarAction(
+            label: '확인',
+            onPressed: () {},
+          ),
+        ),
+      );
+    }
   }
 
   @override

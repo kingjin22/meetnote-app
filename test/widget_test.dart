@@ -14,6 +14,10 @@ void main() {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const MemoNoteApp());
 
+    // Wait for pending timers (from _retryPendingTranscriptions)
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
     // Verify home screen title renders.
     expect(find.text('MemoNote'), findsOneWidget);
   });

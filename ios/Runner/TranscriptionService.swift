@@ -346,7 +346,7 @@ class TranscriptionService {
     var task: SFSpeechRecognitionTask?
     
     // 타임아웃 타이머
-    let timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeoutSeconds, repeats: false) { _ in
+    var timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeoutSeconds, repeats: false) { _ in
       guard !hasCompleted else { return }
       hasCompleted = true
       task?.cancel()
@@ -365,7 +365,7 @@ class TranscriptionService {
         if request.requiresOnDeviceRecognition && allowOnlineFallback {
           // 기존 타이머 무효화 및 새 타이머 생성
           timeoutTimer.invalidate()
-          timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
+          timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeoutSeconds, repeats: false) { _ in
             guard !hasCompleted else { return }
             hasCompleted = true
             task?.cancel()

@@ -363,11 +363,20 @@ class TranscriptionService {
       if let error = error {
         // On-device 실패시 online 재시도
         if request.requiresOnDeviceRecognition && allowOnlineFallback {
+          // 기존 타이머 무효화 및 새 타이머 생성
+          timeoutTimer.invalidate()
+          timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
+            guard !hasCompleted else { return }
+            hasCompleted = true
+            task?.cancel()
+            completion(.failure(NSError(domain: "TranscriptionService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Transcription timed out"])))
+          }
+          
           let retryRequest = SFSpeechURLRecognitionRequest(url: url)
           retryRequest.shouldReportPartialResults = false
           retryRequest.requiresOnDeviceRecognition = false
           
-          _ = recognizer.recognitionTask(with: retryRequest) { retryTranscription, retryError in
+          task = recognizer.recognitionTask(with: retryRequest) { retryTranscription, retryError in
             guard !hasCompleted else { return }
             
             if let retryError = retryError {

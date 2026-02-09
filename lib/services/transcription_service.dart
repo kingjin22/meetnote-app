@@ -45,6 +45,7 @@ class TranscriptionService {
     bool allowOnlineFallback = true,
     int maxRetries = 3,
     Duration retryDelay = const Duration(seconds: 2),
+    Duration timeout = const Duration(minutes: 10), // 타임아웃 추가
     void Function(TranscriptionProgress)? onProgress,
   }) async {
     int attemptCount = 0;
@@ -63,6 +64,7 @@ class TranscriptionService {
             filePath,
             locale: locale,
             allowOnlineFallback: allowOnlineFallback,
+            timeout: timeout,
           );
           return result;
         } on PlatformException catch (e) {
@@ -77,6 +79,20 @@ class TranscriptionService {
           // 마지막 시도가 아니면 대기 후 재시도
           if (attemptCount < maxRetries) {
             final delay = retryDelay * attemptCount; // 지수 백오프
+            print('⚠️ Transcription attempt $attemptCount failed, retrying in ${delay.inSeconds}s...');
+            await Future<void>.delayed(delay);
+          }
+        } on TimeoutException catch (e) {
+          lastError = PlatformException(
+            code: 'timeout',
+            message: e.message ?? '텍스트 변환 시간이 초과되었어요.',
+          );
+          attemptCount++;
+
+          // 타임아웃은 재시도
+          if (attemptCount < maxRetries) {
+            final delay = retryDelay * attemptCount;
+            print('⚠️ Transcription timeout, retrying in ${delay.inSeconds}s...');
             await Future<void>.delayed(delay);
           }
         }
@@ -101,6 +117,7 @@ class TranscriptionService {
       'speech_denied',
       'offline_unavailable',
       'empty_transcript',
+      // timeout은 재시도 가능하므로 제외
     ].contains(code);
   }
 
@@ -108,6 +125,7 @@ class TranscriptionService {
     String filePath, {
     String locale = 'ko-KR',
     bool allowOnlineFallback = true,
+    Duration timeout = const Duration(minutes: 10), // 타임아웃 추가
   }) async {
     if (!Platform.isIOS) {
       throw PlatformException(
@@ -126,11 +144,20 @@ class TranscriptionService {
     }
 
     try {
+      // 타임아웃 적용
       final text = await _channel.invokeMethod<String>('transcribeFile', {
         'path': filePath,
         'locale': locale,
         'allowOnlineFallback': allowOnlineFallback,
-      });
+      }).timeout(
+        timeout,
+        onTimeout: () {
+          throw PlatformException(
+            code: 'timeout',
+            message: '텍스트 변환 시간이 초과되었어요. 파일이 너무 크거나 네트워크 상태를 확인해주세요.',
+          );
+        },
+      );
 
       if (text == null || text.trim().isEmpty) {
         throw PlatformException(
@@ -141,13 +168,18 @@ class TranscriptionService {
 
       return text.trim();
     } on PlatformException catch (error) {
-      if (error.code == 'empty_transcript') {
-        throw PlatformException(
-          code: error.code,
-          message: error.message ?? '텍스트 변환 결과가 비어 있어요.',
-        );
+      if (error.code == 'empty_transcript' || error.code == 'timeout') {
+        rethrow;
       }
-      rethrow;
+      throw PlatformException(
+        code: error.code,
+        message: error.message ?? '텍스트 변환 중 오류가 발생했어요.',
+      );
+    } on TimeoutException {
+      throw PlatformException(
+        code: 'timeout',
+        message: '텍스트 변환 시간이 초과되었어요. 파일이 너무 크거나 네트워크 상태를 확인해주세요.',
+      );
     }
   }
 }

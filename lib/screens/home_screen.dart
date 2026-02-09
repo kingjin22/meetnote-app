@@ -759,32 +759,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showTranscriptionProgress() {
-    if (_progressDialogVisible || !mounted) return;
-    _progressDialogVisible = true;
-    unawaited(
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const AlertDialog(
-          title: Text('텍스트 변환 중'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              LinearProgressIndicator(),
-              SizedBox(height: 16),
-              Text('오디오를 분석하고 있어요...'),
-            ],
-          ),
-        ),
-      ).whenComplete(() {
-        _progressDialogVisible = false;
-      }),
-    );
+    // 다이얼로그 제거 - TranscriptionProgressBanner만 사용
+    // UI 블로킹을 방지하고 진행률을 더 명확하게 표시
+    if (!mounted) return;
+    setState(() {
+      _progressDialogVisible = true;
+    });
   }
 
   void _dismissTranscriptionProgress() {
-    if (!_progressDialogVisible || !mounted) return;
-    Navigator.of(context, rootNavigator: true).maybePop();
+    // 다이얼로그가 없으므로 상태만 초기화
+    if (!mounted) return;
+    setState(() {
+      _progressDialogVisible = false;
+    });
   }
 
   String _buildSummary(String text) {

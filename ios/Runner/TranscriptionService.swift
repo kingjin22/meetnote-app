@@ -340,8 +340,26 @@ class TranscriptionService {
     request.shouldReportPartialResults = false
     request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
     
+    // 타임아웃 설정 (청크당 2분)
+    let timeoutSeconds: TimeInterval = 120
+    var hasCompleted = false
     var task: SFSpeechRecognitionTask?
+    
+    // 타임아웃 타이머
+    let timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeoutSeconds, repeats: false) { _ in
+      guard !hasCompleted else { return }
+      hasCompleted = true
+      task?.cancel()
+      completion(.failure(NSError(
+        domain: "TranscriptionService",
+        code: -8,
+        userInfo: [NSLocalizedDescriptionKey: "청크 변환 시간 초과"]
+      )))
+    }
+    
     task = recognizer.recognitionTask(with: request) { transcription, error in
+      guard !hasCompleted else { return }
+      
       if let error = error {
         // On-device 실패시 online 재시도
         if request.requiresOnDeviceRecognition && allowOnlineFallback {
@@ -350,15 +368,23 @@ class TranscriptionService {
           retryRequest.requiresOnDeviceRecognition = false
           
           _ = recognizer.recognitionTask(with: retryRequest) { retryTranscription, retryError in
+            guard !hasCompleted else { return }
+            
             if let retryError = retryError {
+              hasCompleted = true
+              timeoutTimer.invalidate()
               completion(.failure(retryError))
             } else if let retryTranscription = retryTranscription, retryTranscription.isFinal {
+              hasCompleted = true
+              timeoutTimer.invalidate()
               let text = retryTranscription.bestTranscription.formattedString
                 .trimmingCharacters(in: .whitespacesAndNewlines)
               completion(.success(text))
             }
           }
         } else {
+          hasCompleted = true
+          timeoutTimer.invalidate()
           completion(.failure(error))
         }
         return
@@ -368,6 +394,8 @@ class TranscriptionService {
         return
       }
       
+      hasCompleted = true
+      timeoutTimer.invalidate()
       let text = transcription.bestTranscription.formattedString
         .trimmingCharacters(in: .whitespacesAndNewlines)
       completion(.success(text))

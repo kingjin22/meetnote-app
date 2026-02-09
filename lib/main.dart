@@ -1,7 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/home_screen.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  try {
+    await dotenv.load(fileName: '.env');
+  } catch (e) {
+    // .env file not found or error loading, continue with empty config
+    debugPrint('Warning: Could not load .env file: $e');
+  }
+  
   runApp(const MemoNoteApp());
 }
 

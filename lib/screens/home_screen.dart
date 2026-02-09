@@ -13,6 +13,7 @@ import '../services/recording_import_service.dart';
 import '../services/transcription_service.dart';
 import '../widgets/transcription_progress_banner.dart';
 import 'recording_screen.dart';
+import 'meeting_summary_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -103,7 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 _buildStatItem(
                   icon: MdiIcons.fileDocument,
                   label: '회의록',
-                  value: '0',
+                  value: '${_getSummaryCount()}',
                 ),
               ],
             ),
@@ -348,6 +349,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       case 'view_transcript':
                         await _showTranscriptSheet(recording);
                         break;
+                      case 'generate_summary':
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => MeetingSummaryScreen(
+                              recording: recording,
+                              repository: _repo,
+                            ),
+                          ),
+                        );
+                        await _load(); // Reload to reflect any summary updates
+                        break;
                       case 'path':
                         await showModalBottomSheet<void>(
                           context: context,
@@ -421,6 +434,17 @@ class _HomeScreenState extends State<HomeScreen> {
                             Icon(Icons.description_outlined),
                             SizedBox(width: 8),
                             Text('텍스트 보기'),
+                          ],
+                        ),
+                      ),
+                    if (hasTranscript)
+                      const PopupMenuItem(
+                        value: 'generate_summary',
+                        child: Row(
+                          children: [
+                            Icon(Icons.auto_awesome, color: Colors.blue),
+                            SizedBox(width: 8),
+                            Text('회의록 생성', style: TextStyle(color: Colors.blue)),
                           ],
                         ),
                       ),
@@ -518,6 +542,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final now = DateTime.now();
     final weekStart = now.subtract(Duration(days: now.weekday - 1));
     return _recordings.where((r) => r.createdAt.isAfter(weekStart)).length;
+  }
+
+  int _getSummaryCount() {
+    return _recordings.where((r) => r.summaryText != null && r.summaryText!.isNotEmpty).length;
   }
 
   String _titleFor(DateTime createdAt) {
@@ -637,7 +665,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final persisted = await _repo.getById(recording.id);
       if (!mounted) return;
-      await _showTranscriptSheet(persisted ?? updated);
+      
+      // 텍스트 변환 완료 후 회의록 자동 생성 제안
+      final shouldGenerateSummary = await _showSummaryGenerationPrompt();
+      if (shouldGenerateSummary == true && mounted) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => MeetingSummaryScreen(
+              recording: persisted ?? updated,
+              repository: _repo,
+            ),
+          ),
+        );
+        await _load(); // Reload to reflect any summary updates
+      } else {
+        await _showTranscriptSheet(persisted ?? updated);
+      }
     } catch (e) {
       // 실패 상태로 업데이트
       final errorMessage = _messageForTranscriptionError(e);
@@ -772,6 +816,28 @@ class _HomeScreenState extends State<HomeScreen> {
     if (retry == true && mounted) {
       await _startTranscription(recording);
     }
+  }
+
+  Future<bool?> _showSummaryGenerationPrompt() async {
+    if (!mounted) return null;
+
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('회의록 생성'),
+        content: const Text('AI로 회의록을 자동 생성하시겠어요?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('나중에'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('생성하기'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _showTranscriptSheet(Recording recording) {

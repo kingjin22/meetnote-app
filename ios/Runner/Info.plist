@@ -28,6 +28,10 @@
 	<string>회의를 녹음하기 위해 마이크 접근이 필요합니다.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>녹음 파일을 텍스트로 변환하기 위해 음성 인식이 필요합니다.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>미디어 파일을 가져오기 위해 사진 라이브러리 접근이 필요합니다.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>오디오 파일을 가져오기 위해 음악 라이브러리 접근이 필요합니다.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

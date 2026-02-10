@@ -1,5 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/meeting_summary.dart';
 import '../models/recording.dart';
 import '../services/llm_service.dart';
@@ -106,6 +109,74 @@ class _MeetingSummaryScreenState extends State<MeetingSummaryScreen> {
     }
   }
 
+  Future<void> _exportAsMarkdown() async {
+    if (_summary == null) return;
+
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final exportsDir = Directory('${directory.path}/exports');
+      if (!await exportsDir.exists()) {
+        await exportsDir.create(recursive: true);
+      }
+
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = 'meeting_summary_$timestamp.md';
+      final file = File('${exportsDir.path}/$fileName');
+
+      await file.writeAsString(_summary!.toPlainText());
+
+      if (mounted) {
+        final result = await Share.shareXFiles(
+          [XFile(file.path)],
+          subject: '회의록 - ${_formatDateTime(_summary!.createdAt)}',
+        );
+
+        if (result.status == ShareResultStatus.success) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('회의록이 공유되었습니다')),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('내보내기 실패: $e')),
+        );
+      }
+    }
+  }
+
+  void _showExportOptions() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('클립보드에 복사'),
+              onTap: () {
+                Navigator.pop(context);
+                _copyToClipboard();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.share),
+              title: const Text('Markdown으로 공유'),
+              onTap: () {
+                Navigator.pop(context);
+                _exportAsMarkdown();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _toggleEdit() async {
     if (_isEditing) {
       // Save changes
@@ -161,9 +232,9 @@ class _MeetingSummaryScreenState extends State<MeetingSummaryScreen> {
               tooltip: _isEditing ? '완료' : '편집',
             ),
             IconButton(
-              icon: const Icon(Icons.copy),
-              onPressed: _copyToClipboard,
-              tooltip: '복사',
+              icon: const Icon(Icons.ios_share),
+              onPressed: _showExportOptions,
+              tooltip: '공유/내보내기',
             ),
           ],
         ],

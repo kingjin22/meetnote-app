@@ -49,6 +49,7 @@ dependencies:
 
   # Files
   file_picker: ^8.1.7
+  share_plus: ^10.0.0
 
   # LLM Integration
   flutter_dotenv: ^5.2.1

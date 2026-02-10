@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/home_screen.dart';
 
 Future<void> main() async {
@@ -15,8 +16,35 @@ Future<void> main() async {
   runApp(const MemoNoteApp());
 }
 
-class MemoNoteApp extends StatelessWidget {
+class MemoNoteApp extends StatefulWidget {
   const MemoNoteApp({super.key});
+
+  @override
+  State<MemoNoteApp> createState() => _MemoNoteAppState();
+}
+
+class _MemoNoteAppState extends State<MemoNoteApp> {
+  ThemeMode _themeMode = ThemeMode.system;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadThemeMode();
+  }
+
+  Future<void> _loadThemeMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final themeModeIndex = prefs.getInt('themeMode') ?? ThemeMode.system.index;
+    setState(() {
+      _themeMode = ThemeMode.values[themeModeIndex];
+    });
+  }
+
+  void _handleThemeChanged(ThemeMode mode) {
+    setState(() {
+      _themeMode = mode;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +67,8 @@ class MemoNoteApp extends StatelessWidget {
         useMaterial3: true,
         appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
       ),
-      home: const HomeScreen(),
+      themeMode: _themeMode,
+      home: HomeScreen(onThemeChanged: _handleThemeChanged, currentThemeMode: _themeMode),
     );
   }
 }

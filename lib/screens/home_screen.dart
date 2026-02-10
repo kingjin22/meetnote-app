@@ -14,9 +14,17 @@ import '../services/transcription_service.dart';
 import '../widgets/transcription_progress_banner.dart';
 import 'recording_screen.dart';
 import 'meeting_summary_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final Function(ThemeMode)? onThemeChanged;
+  final ThemeMode? currentThemeMode;
+
+  const HomeScreen({
+    super.key,
+    this.onThemeChanged,
+    this.currentThemeMode,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -166,7 +174,15 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
-              // TODO: 설정 화면
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SettingsScreen(
+                    onThemeChanged: widget.onThemeChanged ?? (_) {},
+                    currentThemeMode: widget.currentThemeMode ?? ThemeMode.system,
+                  ),
+                ),
+              );
             },
           ),
         ],

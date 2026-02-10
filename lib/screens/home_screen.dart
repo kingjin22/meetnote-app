@@ -271,13 +271,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ],
                               ),
                             )
-                        : ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            itemCount: _filteredRecordings.length,
-                            itemBuilder: (context, index) {
-                              final recording = _filteredRecordings[index];
-                              return _buildRecordingCard(recording);
-                            },
+                        : RefreshIndicator(
+                            onRefresh: _load,
+                            child: ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              itemCount: _filteredRecordings.length,
+                              itemBuilder: (context, index) {
+                                final recording = _filteredRecordings[index];
+                                return _buildRecordingCard(recording);
+                              },
+                            ),
                           ),
           ),
         ],

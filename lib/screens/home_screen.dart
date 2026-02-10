@@ -322,11 +322,15 @@ class _HomeScreenState extends State<HomeScreen> {
             ).textTheme.headlineSmall?.copyWith(color: Colors.grey[600]),
           ),
           const SizedBox(height: 8),
-          Text(
-            '하단의 버튼을 눌러 첫 번째 녹음을 시작하세요',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[500]),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              '하단의 버튼을 눌러 첫 번째 녹음을 시작하세요',
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[500]),
+            ),
           ),
         ],
       ),

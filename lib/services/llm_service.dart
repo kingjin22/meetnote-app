@@ -108,8 +108,9 @@ class LLMService {
 
       if (response.statusCode != 200) {
         final errorBody = jsonDecode(response.body);
+        final errorMessage = _getClaudeErrorMessage(response.statusCode, errorBody);
         throw LLMServiceException(
-          'Claude API request failed: ${errorBody['error']?['message'] ?? 'Unknown error'}',
+          errorMessage,
           statusCode: response.statusCode,
           details: errorBody,
         );
@@ -119,9 +120,18 @@ class LLMService {
       final content = responseData['content'][0]['text'] as String;
 
       return _parseSummaryResponse(content);
+    } on TimeoutException {
+      throw LLMServiceException(
+        '요청 시간이 초과되었습니다. 네트워크 연결을 확인해주세요.',
+        statusCode: 408,
+      );
+    } on http.ClientException catch (e) {
+      throw LLMServiceException(
+        '네트워크 연결에 실패했습니다: ${e.message}',
+      );
     } catch (e) {
       if (e is LLMServiceException) rethrow;
-      throw LLMServiceException('Failed to generate summary with Claude: $e');
+      throw LLMServiceException('회의록 생성 중 오류가 발생했습니다: $e');
     }
   }
 
@@ -168,8 +178,9 @@ class LLMService {
 
       if (response.statusCode != 200) {
         final errorBody = jsonDecode(response.body);
+        final errorMessage = _getOpenAIErrorMessage(response.statusCode, errorBody);
         throw LLMServiceException(
-          'OpenAI API request failed: ${errorBody['error']?['message'] ?? 'Unknown error'}',
+          errorMessage,
           statusCode: response.statusCode,
           details: errorBody,
         );
@@ -179,9 +190,18 @@ class LLMService {
       final content = responseData['choices'][0]['message']['content'] as String;
 
       return _parseSummaryResponse(content);
+    } on TimeoutException {
+      throw LLMServiceException(
+        '요청 시간이 초과되었습니다. 네트워크 연결을 확인해주세요.',
+        statusCode: 408,
+      );
+    } on http.ClientException catch (e) {
+      throw LLMServiceException(
+        '네트워크 연결에 실패했습니다: ${e.message}',
+      );
     } catch (e) {
       if (e is LLMServiceException) rethrow;
-      throw LLMServiceException('Failed to generate summary with OpenAI: $e');
+      throw LLMServiceException('회의록 생성 중 오류가 발생했습니다: $e');
     }
   }
 
@@ -253,6 +273,48 @@ class LLMService {
   int estimateTokenCount(String text) {
     // Rough estimate: 1 token ≈ 4 characters for English, ~2-3 for Korean
     return (text.length / 2.5).ceil();
+  }
+
+  /// Get user-friendly error message for Claude API errors
+  String _getClaudeErrorMessage(int statusCode, Map<String, dynamic> errorBody) {
+    switch (statusCode) {
+      case 400:
+        return '잘못된 요청입니다. 텍스트가 너무 길거나 형식이 올바르지 않습니다.';
+      case 401:
+        return 'API 키가 유효하지 않습니다. 설정을 확인해주세요.';
+      case 403:
+        return 'API 접근이 거부되었습니다. 권한을 확인해주세요.';
+      case 429:
+        return 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.';
+      case 500:
+      case 502:
+      case 503:
+        return 'Claude API 서버에 일시적인 문제가 있습니다. 잠시 후 다시 시도해주세요.';
+      default:
+        final message = errorBody['error']?['message'] as String?;
+        return message ?? 'Claude API 요청에 실패했습니다 (상태 코드: $statusCode)';
+    }
+  }
+
+  /// Get user-friendly error message for OpenAI API errors
+  String _getOpenAIErrorMessage(int statusCode, Map<String, dynamic> errorBody) {
+    switch (statusCode) {
+      case 400:
+        return '잘못된 요청입니다. 텍스트가 너무 길거나 형식이 올바르지 않습니다.';
+      case 401:
+        return 'API 키가 유효하지 않습니다. 설정을 확인해주세요.';
+      case 403:
+        return 'API 접근이 거부되었습니다. 권한을 확인해주세요.';
+      case 429:
+        return 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.';
+      case 500:
+      case 502:
+      case 503:
+        return 'OpenAI API 서버에 일시적인 문제가 있습니다. 잠시 후 다시 시도해주세요.';
+      default:
+        final message = errorBody['error']?['message'] as String?;
+        return message ?? 'OpenAI API 요청에 실패했습니다 (상태 코드: $statusCode)';
+    }
   }
 
   /// Estimate cost for generation

@@ -28,6 +28,10 @@ class RecordingImportService {
     'ogg',
   };
 
+  // 최대 파일 크기: 500MB (바이트 단위)
+  // 대부분의 회의 녹음은 이보다 작지만, 긴 회의를 위한 여유 제공
+  static const int maxFileSizeBytes = 500 * 1024 * 1024;
+
   final Future<Directory> Function() _documentsDirProvider;
   final DateTime Function() _now;
 
@@ -49,6 +53,16 @@ class RecordingImportService {
     final sourceFile = File(sourcePath);
     if (!await sourceFile.exists()) {
       throw const RecordingImportException('선택한 파일에 접근할 수 없어요.');
+    }
+
+    // 파일 크기 확인
+    final fileSize = await sourceFile.length();
+    if (fileSize > maxFileSizeBytes) {
+      final sizeMB = (fileSize / (1024 * 1024)).toStringAsFixed(1);
+      final maxSizeMB = (maxFileSizeBytes / (1024 * 1024)).toStringAsFixed(0);
+      throw RecordingImportException(
+        '파일이 너무 커요 (${sizeMB}MB). 최대 ${maxSizeMB}MB까지 가능합니다.',
+      );
     }
 
     final ext = _extensionOf(originalName);

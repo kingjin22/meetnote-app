@@ -41,11 +41,15 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Recording> _filteredRecordings = [];
   final Set<String> _transcribingIds = {};
   bool _isSearching = false;
+  bool _isLoading = true;
   
   // 진행률 상태
   double? _transcriptionProgress;
   int? _currentChunk;
   int? _totalChunks;
+  
+  // 되돌리기용 임시 저장
+  Recording? _lastDeletedRecording;
 
   @override
   void initState() {
@@ -56,12 +60,27 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _load() async {
-    final items = await _repo.list();
-    if (!mounted) return;
     setState(() {
-      _recordings = items;
-      _filterRecordings();
+      _isLoading = true;
     });
+    
+    try {
+      final items = await _repo.list();
+      if (!mounted) return;
+      setState(() {
+        _recordings = items;
+        _filterRecordings();
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('녹음 목록을 불러오는데 실패했습니다: $e')),
+      );
+    }
   }
 
   void _filterRecordings() {
@@ -232,32 +251,34 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           Expanded(
-            child: _recordings.isEmpty
-                ? _buildEmptyState()
-                : _filteredRecordings.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.search_off, size: 64, color: Colors.grey[400]),
-                            const SizedBox(height: 16),
-                            Text(
-                              '검색 결과가 없습니다',
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    color: Colors.grey[600],
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _recordings.isEmpty
+                    ? _buildEmptyState()
+                    : _filteredRecordings.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.search_off, size: 64, color: Colors.grey[400]),
+                                const SizedBox(height: 16),
+                                Text(
+                                  '검색 결과가 없습니다',
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                        color: Colors.grey[600],
+                                    ),
                                   ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: _filteredRecordings.length,
-                        itemBuilder: (context, index) {
-                          final recording = _filteredRecordings[index];
-                          return _buildRecordingCard(recording);
-                        },
-                      ),
+                                ],
+                              ),
+                            )
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: _filteredRecordings.length,
+                            itemBuilder: (context, index) {
+                              final recording = _filteredRecordings[index];
+                              return _buildRecordingCard(recording);
+                            },
+                          ),
           ),
         ],
       ),
@@ -562,8 +583,36 @@ class _HomeScreenState extends State<HomeScreen> {
                         if (_playback.currentRecordingId == recording.id) {
                           await _playback.stop();
                         }
+                        
+                        // 되돌리기를 위해 저장
+                        _lastDeletedRecording = recording;
+                        
                         await _repo.deleteById(recording.id);
                         await _load();
+                        
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Text('녹음이 삭제되었습니다'),
+                              action: SnackBarAction(
+                                label: '되돌리기',
+                                onPressed: () async {
+                                  if (_lastDeletedRecording != null) {
+                                    await _repo.add(_lastDeletedRecording!);
+                                    _lastDeletedRecording = null;
+                                    await _load();
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('녹음이 복원되었습니다')),
+                                      );
+                                    }
+                                  }
+                                },
+                              ),
+                              duration: const Duration(seconds: 5),
+                            ),
+                          );
+                        }
                         break;
                     }
                   },

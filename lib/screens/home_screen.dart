@@ -50,13 +50,31 @@ class _HomeScreenState extends State<HomeScreen> {
   
   // 되돌리기용 임시 저장
   Recording? _lastDeletedRecording;
+  
+  // 검색 디바운싱
+  Timer? _searchDebounce;
 
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_filterRecordings);
+    _searchController.addListener(_onSearchChanged);
     unawaited(_load());
     unawaited(_retryPendingTranscriptions());
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    _playback.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      _filterRecordings();
+    });
   }
 
   Future<void> _load() async {
@@ -163,12 +181,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
-  void dispose() {
-    _searchController.dispose();
-    _playback.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(

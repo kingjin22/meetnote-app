@@ -40,7 +40,6 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Recording> _recordings = [];
   List<Recording> _filteredRecordings = [];
   final Set<String> _transcribingIds = {};
-  bool _progressDialogVisible = false;
   bool _isSearching = false;
   
   // 진행률 상태
@@ -67,15 +66,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _filterRecordings() {
     final query = _searchController.text.toLowerCase();
+    List<Recording> filtered;
+    
     if (query.isEmpty) {
-      setState(() {
-        _filteredRecordings = _recordings;
-      });
-      return;
-    }
-
-    setState(() {
-      _filteredRecordings = _recordings.where((recording) {
+      filtered = _recordings;
+    } else {
+      filtered = _recordings.where((recording) {
         final title = _titleFor(recording).toLowerCase();
         final date = _formatDate(recording.createdAt).toLowerCase();
         final transcript = recording.transcriptText?.toLowerCase() ?? '';
@@ -83,6 +79,17 @@ class _HomeScreenState extends State<HomeScreen> {
                date.contains(query) || 
                transcript.contains(query);
       }).toList();
+    }
+
+    // 즐겨찾기를 우선으로 정렬
+    filtered.sort((a, b) {
+      if (a.isFavorite && !b.isFavorite) return -1;
+      if (!a.isFavorite && b.isFavorite) return 1;
+      return 0; // 같은 즐겨찾기 상태면 기존 순서 유지
+    });
+
+    setState(() {
+      _filteredRecordings = filtered;
     });
   }
 
@@ -447,12 +454,33 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             children: [
               ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  child: Icon(
-                    isPlaying ? Icons.pause : Icons.play_arrow,
-                    color: Colors.white,
-                  ),
+                leading: Stack(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      child: Icon(
+                        isPlaying ? Icons.pause : Icons.play_arrow,
+                        color: Colors.white,
+                      ),
+                    ),
+                    if (recording.isFavorite)
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: Colors.amber,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.star,
+                            size: 14,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 title: Text(title),
                 subtitle: Column(
@@ -478,6 +506,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 trailing: PopupMenuButton<String>(
                   onSelected: (value) async {
                     switch (value) {
+                      case 'edit_title':
+                        await _editTitle(recording);
+                        break;
+                      case 'toggle_favorite':
+                        await _toggleFavorite(recording);
+                        break;
                       case 'transcribe':
                         await _startTranscription(recording);
                         break;
@@ -534,6 +568,30 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
                   },
                   itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'edit_title',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit),
+                          const SizedBox(width: 8),
+                          Text('제목 수정'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'toggle_favorite',
+                      child: Row(
+                        children: [
+                          Icon(
+                            recording.isFavorite ? Icons.star : Icons.star_border,
+                            color: recording.isFavorite ? Colors.amber : null,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(recording.isFavorite ? '즐겨찾기 해제' : '즐겨찾기'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuDivider(),
                     if (!hasTranscript && !isTranscribing)
                       PopupMenuItem(
                         value: 'transcribe',
@@ -849,18 +907,10 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showTranscriptionProgress() {
     // 다이얼로그 제거 - TranscriptionProgressBanner만 사용
     // UI 블로킹을 방지하고 진행률을 더 명확하게 표시
-    if (!mounted) return;
-    setState(() {
-      _progressDialogVisible = true;
-    });
   }
 
   void _dismissTranscriptionProgress() {
-    // 다이얼로그가 없으므로 상태만 초기화
-    if (!mounted) return;
-    setState(() {
-      _progressDialogVisible = false;
-    });
+    // 다이얼로그가 없으므로 별도 처리 불필요
   }
 
   String _buildSummary(String text) {
@@ -1072,6 +1122,74 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         );
+    }
+  }
+
+  Future<void> _editTitle(Recording recording) async {
+    final controller = TextEditingController(text: recording.title ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('제목 수정'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: _titleFor(recording),
+              border: const OutlineInputBorder(),
+            ),
+            maxLength: 100,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (controller.text.trim().isEmpty) {
+                  Navigator.pop(context, ''); // 빈 문자열 = 기본 제목으로 복원
+                } else {
+                  Navigator.pop(context, controller.text.trim());
+                }
+              },
+              child: const Text('저장'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result == null) return;
+
+    final updated = recording.copyWith(
+      title: result.isEmpty ? null : result,
+      clearTitle: result.isEmpty,
+    );
+    await _repo.update(updated);
+    await _load();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('제목이 변경되었습니다')),
+      );
+    }
+  }
+
+  Future<void> _toggleFavorite(Recording recording) async {
+    final updated = recording.copyWith(isFavorite: !recording.isFavorite);
+    await _repo.update(updated);
+    await _load();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            updated.isFavorite ? '즐겨찾기에 추가되었습니다' : '즐겨찾기에서 제거되었습니다',
+          ),
+        ),
+      );
     }
   }
 }

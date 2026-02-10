@@ -315,10 +315,10 @@ class _RecordingScreenState extends State<RecordingScreen>
                         children: [
                           ElevatedButton.icon(
                             onPressed: _cancelRecording,
-                            icon: const Icon(MdiIcons.close),
+                            icon: Icon(MdiIcons.close),
                             label: const Text('취소'),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.grey[300],
+                              backgroundColor: Colors.grey.shade300,
                               foregroundColor: Colors.black87,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 24,
@@ -329,7 +329,7 @@ class _RecordingScreenState extends State<RecordingScreen>
                           const SizedBox(width: 16),
                           ElevatedButton.icon(
                             onPressed: _stopRecording,
-                            icon: const Icon(MdiIcons.stop),
+                            icon: Icon(MdiIcons.stop),
                             label: const Text('정지'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.red,
@@ -400,7 +400,7 @@ class _RecordingScreenState extends State<RecordingScreen>
                               : '버튼을 눌러 녹음을 시작하세요.',
                       style: Theme.of(
                         context,
-                      ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                      ).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
                       textAlign: TextAlign.center,
                     ),
                   ],

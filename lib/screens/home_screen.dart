@@ -76,7 +76,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _filteredRecordings = _recordings.where((recording) {
-        final title = _titleFor(recording.createdAt).toLowerCase();
+        final title = _titleFor(recording).toLowerCase();
         final date = _formatDate(recording.createdAt).toLowerCase();
         final transcript = recording.transcriptText?.toLowerCase() ?? '';
         return title.contains(query) || 
@@ -418,7 +418,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildRecordingCard(Recording recording) {
-    final title = _titleFor(recording.createdAt);
+    final title = _titleFor(recording);
 
     return AnimatedBuilder(
       animation: _playback,
@@ -683,7 +683,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return _recordings.where((r) => r.summaryText != null && r.summaryText!.isNotEmpty).length;
   }
 
-  String _titleFor(DateTime createdAt) {
+  String _titleFor(Recording recording) {
+    if (recording.title != null && recording.title!.isNotEmpty) {
+      return recording.title!;
+    }
+    final createdAt = recording.createdAt;
     final mm = createdAt.minute.toString().padLeft(2, '0');
     return '녹음 ${createdAt.month}/${createdAt.day} ${createdAt.hour}:$mm';
   }
@@ -696,7 +700,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<bool?> _confirmDelete(Recording recording) {
-    final title = _titleFor(recording.createdAt);
+    final title = _titleFor(recording);
 
     return showDialog<bool>(
       context: context,

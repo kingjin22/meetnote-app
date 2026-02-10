@@ -22,6 +22,8 @@ class Recording {
   final String filePath;
   final DateTime createdAt;
   final Duration duration;
+  final String? title; // Custom title set by user
+  final bool isFavorite; // Favorite flag
   final String? transcriptText;
   final String? summaryText;
   final TranscriptionStatus transcriptionStatus;
@@ -34,6 +36,8 @@ class Recording {
     required this.filePath,
     required this.createdAt,
     required this.duration,
+    this.title,
+    this.isFavorite = false,
     this.transcriptText,
     this.summaryText,
     this.transcriptionStatus = TranscriptionStatus.none,
@@ -48,6 +52,8 @@ class Recording {
       'filePath': filePath,
       'createdAtMs': createdAt.millisecondsSinceEpoch,
       'durationMs': duration.inMilliseconds,
+      'title': title,
+      'isFavorite': isFavorite ? 1 : 0,
       'transcriptText': transcriptText,
       'summaryText': summaryText,
       'transcriptionStatus': transcriptionStatus.toJson(),
@@ -64,6 +70,8 @@ class Recording {
       filePath: map['filePath'] as String,
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAtMs'] as int),
       duration: Duration(milliseconds: map['durationMs'] as int),
+      title: map['title'] as String?,
+      isFavorite: (map['isFavorite'] as int?) == 1,
       transcriptText: map['transcriptText'] as String?,
       summaryText: map['summaryText'] as String?,
       transcriptionStatus: TranscriptionStatus.fromJson(
@@ -84,6 +92,8 @@ class Recording {
   }
 
   Recording copyWith({
+    String? title,
+    bool? isFavorite,
     String? transcriptText,
     String? summaryText,
     TranscriptionStatus? transcriptionStatus,
@@ -91,12 +101,15 @@ class Recording {
     int? transcriptionRetryCount,
     DateTime? transcriptionCompletedAt,
     bool clearTranscriptionError = false,
+    bool clearTitle = false,
   }) {
     return Recording(
       id: id,
       filePath: filePath,
       createdAt: createdAt,
       duration: duration,
+      title: clearTitle ? null : (title ?? this.title),
+      isFavorite: isFavorite ?? this.isFavorite,
       transcriptText: transcriptText ?? this.transcriptText,
       summaryText: summaryText ?? this.summaryText,
       transcriptionStatus: transcriptionStatus ?? this.transcriptionStatus,

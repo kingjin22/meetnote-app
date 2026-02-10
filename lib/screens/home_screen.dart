@@ -43,6 +43,11 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSearching = false;
   bool _isLoading = true;
   
+  // 정렬 및 필터
+  _SortOption _sortOption = _SortOption.dateDesc;
+  bool _filterFavoritesOnly = false;
+  bool _filterTranscribedOnly = false;
+  
   // 진행률 상태
   double? _transcriptionProgress;
   int? _currentChunk;
@@ -103,12 +108,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _filterRecordings() {
     final query = _searchController.text.toLowerCase();
-    List<Recording> filtered;
+    List<Recording> filtered = _recordings;
     
-    if (query.isEmpty) {
-      filtered = _recordings;
-    } else {
-      filtered = _recordings.where((recording) {
+    // 필터 적용
+    if (_filterFavoritesOnly) {
+      filtered = filtered.where((r) => r.isFavorite).toList();
+    }
+    
+    if (_filterTranscribedOnly) {
+      filtered = filtered.where((r) => r.transcriptionStatus == TranscriptionStatus.success).toList();
+    }
+    
+    // 검색어 필터링
+    if (query.isNotEmpty) {
+      filtered = filtered.where((recording) {
         final title = _titleFor(recording).toLowerCase();
         final date = _formatDate(recording.createdAt).toLowerCase();
         final transcript = recording.transcriptText?.toLowerCase() ?? '';
@@ -118,11 +131,23 @@ class _HomeScreenState extends State<HomeScreen> {
       }).toList();
     }
 
-    // 즐겨찾기를 우선으로 정렬
+    // 정렬 적용
     filtered.sort((a, b) {
+      // 즐겨찾기를 항상 우선
       if (a.isFavorite && !b.isFavorite) return -1;
       if (!a.isFavorite && b.isFavorite) return 1;
-      return 0; // 같은 즐겨찾기 상태면 기존 순서 유지
+      
+      // 같은 즐겨찾기 상태면 선택한 정렬 옵션 적용
+      switch (_sortOption) {
+        case _SortOption.dateDesc:
+          return b.createdAt.compareTo(a.createdAt);
+        case _SortOption.dateAsc:
+          return a.createdAt.compareTo(b.createdAt);
+        case _SortOption.titleAsc:
+          return _titleFor(a).compareTo(_titleFor(b));
+        case _SortOption.durationDesc:
+          return b.duration.compareTo(a.duration);
+      }
     });
 
     setState(() {
@@ -198,6 +223,55 @@ class _HomeScreenState extends State<HomeScreen> {
             : const Text('MemoNote'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          if (!_isSearching) ...[
+            PopupMenuButton<String>(
+              icon: Icon(
+                _filterFavoritesOnly || _filterTranscribedOnly 
+                  ? Icons.filter_alt 
+                  : Icons.filter_alt_outlined,
+              ),
+              tooltip: '필터',
+              onSelected: (value) {
+                setState(() {
+                  if (value == 'favorites') {
+                    _filterFavoritesOnly = !_filterFavoritesOnly;
+                  } else if (value == 'transcribed') {
+                    _filterTranscribedOnly = !_filterTranscribedOnly;
+                  }
+                  _filterRecordings();
+                });
+              },
+              itemBuilder: (context) => [
+                CheckedPopupMenuItem(
+                  value: 'favorites',
+                  checked: _filterFavoritesOnly,
+                  child: const Text('즐겨찾기만'),
+                ),
+                CheckedPopupMenuItem(
+                  value: 'transcribed',
+                  checked: _filterTranscribedOnly,
+                  child: const Text('텍스트 변환 완료만'),
+                ),
+              ],
+            ),
+            PopupMenuButton<_SortOption>(
+              icon: const Icon(Icons.sort),
+              tooltip: '정렬',
+              onSelected: (option) {
+                setState(() {
+                  _sortOption = option;
+                  _filterRecordings();
+                });
+              },
+              itemBuilder: (context) => _SortOption.values.map((option) {
+                return CheckedPopupMenuItem(
+                  value: option,
+                  checked: _sortOption == option,
+                  child: Text(option.label),
+                );
+              }).toList(),
+            ),
+          ],
           IconButton(
             icon: Icon(_isSearching ? Icons.close : Icons.search),
             onPressed: () {
@@ -1256,4 +1330,14 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
   }
+}
+
+enum _SortOption {
+  dateDesc('최신순'),
+  dateAsc('오래된순'),
+  titleAsc('제목순'),
+  durationDesc('길이순');
+
+  final String label;
+  const _SortOption(this.label);
 }

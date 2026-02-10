@@ -27,10 +27,13 @@ class _HomeScreenState extends State<HomeScreen> {
   final _playback = AudioPlaybackController();
   final _importService = RecordingImportService();
   final _transcriptionService = TranscriptionService();
+  final _searchController = TextEditingController();
 
   List<Recording> _recordings = [];
+  List<Recording> _filteredRecordings = [];
   final Set<String> _transcribingIds = {};
   bool _progressDialogVisible = false;
+  bool _isSearching = false;
   
   // 진행률 상태
   double? _transcriptionProgress;
@@ -40,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(_filterRecordings);
     unawaited(_load());
     unawaited(_retryPendingTranscriptions());
   }
@@ -49,6 +53,28 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     setState(() {
       _recordings = items;
+      _filterRecordings();
+    });
+  }
+
+  void _filterRecordings() {
+    final query = _searchController.text.toLowerCase();
+    if (query.isEmpty) {
+      setState(() {
+        _filteredRecordings = _recordings;
+      });
+      return;
+    }
+
+    setState(() {
+      _filteredRecordings = _recordings.where((recording) {
+        final title = _titleFor(recording.createdAt).toLowerCase();
+        final date = _formatDate(recording.createdAt).toLowerCase();
+        final transcript = recording.transcriptText?.toLowerCase() ?? '';
+        return title.contains(query) || 
+               date.contains(query) || 
+               transcript.contains(query);
+      }).toList();
     });
   }
 
@@ -104,6 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _searchController.dispose();
     _playback.dispose();
     super.dispose();
   }
@@ -112,9 +139,30 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('MemoNote'),
+        title: _isSearching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: '녹음 검색...',
+                  border: InputBorder.none,
+                ),
+                style: const TextStyle(color: Colors.black87),
+              )
+            : const Text('MemoNote'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          IconButton(
+            icon: Icon(_isSearching ? Icons.close : Icons.search),
+            onPressed: () {
+              setState(() {
+                _isSearching = !_isSearching;
+                if (!_isSearching) {
+                  _searchController.clear();
+                }
+              });
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
@@ -163,14 +211,30 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: _recordings.isEmpty
                 ? _buildEmptyState()
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: _recordings.length,
-                    itemBuilder: (context, index) {
-                      final recording = _recordings[index];
-                      return _buildRecordingCard(recording);
-                    },
-                  ),
+                : _filteredRecordings.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.search_off, size: 64, color: Colors.grey[400]),
+                            const SizedBox(height: 16),
+                            Text(
+                              '검색 결과가 없습니다',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    color: Colors.grey[600],
+                                  ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: _filteredRecordings.length,
+                        itemBuilder: (context, index) {
+                          final recording = _filteredRecordings[index];
+                          return _buildRecordingCard(recording);
+                        },
+                      ),
           ),
         ],
       ),

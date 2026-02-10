@@ -83,6 +83,24 @@ class MeetingSummary {
     return MeetingSummary.fromMap(jsonDecode(json) as Map<String, dynamic>);
   }
 
+  MeetingSummary copyWith({
+    String? overview,
+    List<String>? discussions,
+    List<String>? decisions,
+    List<ActionItem>? actionItems,
+    String? nextMeeting,
+    DateTime? createdAt,
+  }) {
+    return MeetingSummary(
+      overview: overview ?? this.overview,
+      discussions: discussions ?? this.discussions,
+      decisions: decisions ?? this.decisions,
+      actionItems: actionItems ?? this.actionItems,
+      nextMeeting: nextMeeting ?? this.nextMeeting,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
   /// Convert to plain text format
   String toPlainText() {
     final buffer = StringBuffer();

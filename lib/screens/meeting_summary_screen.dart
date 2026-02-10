@@ -106,10 +106,46 @@ class _MeetingSummaryScreenState extends State<MeetingSummaryScreen> {
     }
   }
 
-  void _toggleEdit() {
+  Future<void> _toggleEdit() async {
+    if (_isEditing) {
+      // Save changes
+      await _saveChanges();
+    }
     setState(() {
       _isEditing = !_isEditing;
     });
+  }
+
+  Future<void> _saveChanges() async {
+    if (_summary == null) return;
+
+    final updatedSummary = _summary!.copyWith(
+      overview: _overviewController.text,
+    );
+
+    final updatedRecording = widget.recording.copyWith(
+      summaryText: updatedSummary.toJson(),
+    );
+
+    try {
+      await widget.repository.update(updatedRecording);
+      
+      setState(() {
+        _summary = updatedSummary;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('회의록이 저장되었습니다')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('저장 실패: $e')),
+        );
+      }
+    }
   }
 
   @override
